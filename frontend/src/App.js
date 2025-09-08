@@ -1,50 +1,125 @@
-import { useEffect } from "react";
+import { useState, useEffect } from "react";
 import "./App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import axios from "axios";
+import LoginPage from "./components/LoginPage";
+import Dashboard from "./components/Dashboard";
+import Clientes from "./components/Clientes";
+import Produtos from "./components/Produtos";
+import Financeiro from "./components/Financeiro";
+import HistoricoFinanceiro from "./components/HistoricoFinanceiro";
+import Layout from "./components/Layout";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-const Home = () => {
-  const helloWorldApi = async () => {
+// Configurar interceptador do axios para adicionar token
+axios.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Interceptador de resposta para tratar token expirado
+axios.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('token');
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
+
+function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  const checkAuth = async () => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      try {
+        const response = await axios.get(`${API}/auth/me`);
+        setUser(response.data);
+        setIsAuthenticated(true);
+      } catch (error) {
+        localStorage.removeItem('token');
+        setIsAuthenticated(false);
+      }
+    }
+    setLoading(false);
+  };
+
+  const login = async (username, password) => {
     try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
+      const response = await axios.post(`${API}/auth/login`, {
+        username,
+        password
+      });
+      
+      const { access_token, user } = response.data;
+      localStorage.setItem('token', access_token);
+      setUser(user);
+      setIsAuthenticated(true);
+      return true;
+    } catch (error) {
+      console.error('Erro no login:', error);
+      return false;
     }
   };
 
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
+  const logout = () => {
+    localStorage.removeItem('token');
+    setUser(null);
+    setIsAuthenticated(false);
+  };
 
-  return (
-    <div>
-      <header className="App-header">
-        <a
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
-};
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
 
-function App() {
   return (
     <div className="App">
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
+          <Route 
+            path="/login" 
+            element={
+              isAuthenticated ? 
+                <Navigate to="/dashboard" replace /> : 
+                <LoginPage onLogin={login} />
+            } 
+          />
+          
+          {isAuthenticated ? (
+            <Route path="/" element={<Layout user={user} onLogout={logout} />}>
+              <Route index element={<Navigate to="/dashboard" replace />} />
+              <Route path="dashboard" element={<Dashboard />} />
+              <Route path="clientes" element={<Clientes />} />
+              <Route path="produtos" element={<Produtos />} />
+              <Route path="financeiro" element={<Financeiro />} />
+              <Route path="financeiro/historico" element={<HistoricoFinanceiro />} />
+            </Route>
+          ) : (
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          )}
         </Routes>
       </BrowserRouter>
     </div>
