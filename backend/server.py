@@ -542,4 +542,468 @@ async def ajustar_estoque(produto_id: str, cnpj: str, quantidade: int, motivo: s
     
     return {"message": "Estoque ajustado com sucesso"}
 
-# Continua na próxima parte devido ao limite de tamanho...
+# ============= FINANCEIRO ROUTES =============
+
+@api_router.post("/contas-banco", response_model=ContaBanco)
+async def create_conta_banco(conta: ContaBancoCreate, current_user: str = Depends(get_current_user)):
+    conta_dict = conta.dict()
+    conta_obj = ContaBanco(**conta_dict)
+    await db.contas_banco.insert_one(conta_obj.dict())
+    return conta_obj
+
+@api_router.get("/contas-banco", response_model=List[ContaBanco])
+async def get_contas_banco(current_user: str = Depends(get_current_user)):
+    contas = await db.contas_banco.find().to_list(100)
+    return [ContaBanco(**conta) for conta in contas]
+
+@api_router.post("/financeiro", response_model=ContaFinanceira)
+async def create_conta_financeira(conta: ContaFinanceiraCreate, current_user: str = Depends(get_current_user)):
+    conta_dict = conta.dict()
+    
+    # Se tem parcelas, criar múltiplas contas
+    if conta_dict.get("parcelas", 1) > 1:
+        contas_criadas = []
+        valor_parcela = conta_dict["valor"] / conta_dict["parcelas"]
+        
+        for i in range(conta_dict["parcelas"]):
+            conta_parcela = conta_dict.copy()
+            conta_parcela["valor"] = round(valor_parcela, 2)
+            conta_parcela["parcela"] = i + 1
+            conta_parcela["total_parcelas"] = conta_dict["parcelas"]
+            conta_parcela["descricao"] = f"{conta_dict['descricao']} - Parcela {i+1}/{conta_dict['parcelas']}"
+            
+            # Ajustar data de vencimento
+            from dateutil.relativedelta import relativedelta
+            data_base = datetime.strptime(str(conta_dict["data_vencimento"]), "%Y-%m-%d").date()
+            conta_parcela["data_vencimento"] = data_base + relativedelta(months=i)
+            
+            del conta_parcela["parcelas"]
+            conta_obj = ContaFinanceira(**conta_parcela)
+            await db.contas_financeiras.insert_one(conta_obj.dict())
+            contas_criadas.append(conta_obj)
+        
+        return contas_criadas[0]  # Retorna a primeira parcela
+    else:
+        del conta_dict["parcelas"]
+        conta_obj = ContaFinanceira(**conta_dict)
+        await db.contas_financeiras.insert_one(conta_obj.dict())
+        return conta_obj
+
+@api_router.get("/financeiro")
+async def get_contas_financeiras(tipo: str = None, status: str = None, current_user: str = Depends(get_current_user)):
+    filter_query = {}
+    if tipo:
+        filter_query["tipo"] = tipo
+    if status:
+        filter_query["status"] = status
+    
+    contas = await db.contas_financeiras.find(filter_query).sort("data_vencimento", 1).to_list(1000)
+    return contas
+
+@api_router.post("/financeiro/{conta_id}/pagar")
+async def pagar_conta(conta_id: str, conta_banco_id: str, valor_pago: float, data_pagamento: str, current_user: str = Depends(get_current_user)):
+    """Baixa uma conta como paga"""
+    conta = await db.contas_financeiras.find_one({"id": conta_id})
+    if not conta:
+        raise HTTPException(status_code=404, detail="Conta não encontrada")
+    
+    # Atualizar conta
+    update_data = {
+        "valor_pago": valor_pago,
+        "data_pagamento": datetime.strptime(data_pagamento, "%Y-%m-%d").date(),
+        "status": "PAGO",
+        "conta_banco_id": conta_banco_id
+    }
+    
+    await db.contas_financeiras.update_one({"id": conta_id}, {"$set": update_data})
+    
+    # Atualizar saldo da conta bancária
+    conta_banco = await db.contas_banco.find_one({"id": conta_banco_id})
+    if conta_banco:
+        if conta["tipo"] == "PAGAR":
+            novo_saldo = conta_banco["saldo_atual"] - valor_pago
+        else:  # RECEBER
+            novo_saldo = conta_banco["saldo_atual"] + valor_pago
+        
+        await db.contas_banco.update_one({"id": conta_banco_id}, {"$set": {"saldo_atual": novo_saldo}})
+    
+    return {"message": "Conta baixada com sucesso"}
+
+@api_router.get("/financeiro/relatorios")
+async def get_relatorios_financeiros(current_user: str = Depends(get_current_user)):
+    """Relatórios financeiros gerais"""
+    # Contas a pagar
+    total_pagar = await db.contas_financeiras.aggregate([
+        {"$match": {"tipo": "PAGAR", "status": "PENDENTE"}},
+        {"$group": {"_id": None, "total": {"$sum": "$valor"}}}
+    ]).to_list(1)
+    
+    # Contas a receber
+    total_receber = await db.contas_financeiras.aggregate([
+        {"$match": {"tipo": "RECEBER", "status": "PENDENTE"}},
+        {"$group": {"_id": None, "total": {"$sum": "$valor"}}}
+    ]).to_list(1)
+    
+    # Saldo total das contas bancárias
+    saldo_bancos = await db.contas_banco.aggregate([
+        {"$match": {"ativo": True}},
+        {"$group": {"_id": None, "total": {"$sum": "$saldo_atual"}}}
+    ]).to_list(1)
+    
+    pagar = total_pagar[0]["total"] if total_pagar else 0
+    receber = total_receber[0]["total"] if total_receber else 0
+    saldo = saldo_bancos[0]["total"] if saldo_bancos else 0
+    
+    return {
+        "contas_pagar": pagar,
+        "contas_receber": receber,
+        "saldo_bancos": saldo,
+        "patrimonio_liquido": saldo + receber - pagar
+    }
+
+# ============= XML PROCESSING ROUTES =============
+
+@api_router.post("/xml/upload")
+async def upload_xml(file: UploadFile = File(...), cnpj_destino: str = Form(...), current_user: str = Depends(get_current_user)):
+    """Upload e processamento de XML de compra"""
+    if not file.filename.endswith('.xml'):
+        raise HTTPException(status_code=400, detail="Arquivo deve ser XML")
+    
+    # Ler conteúdo do arquivo
+    content = await file.read()
+    
+    try:
+        # Parse do XML
+        root = ET.fromstring(content)
+        
+        # Extrair dados básicos da NF
+        ns = {'nfe': 'http://www.portalfiscal.inf.br/nfe'}  # Namespace padrão NFe
+        
+        # Dados do emitente (fornecedor)
+        emit = root.find('.//nfe:emit', ns) or root.find('.//emit')
+        fornecedor_cnpj = emit.find('.//CNPJ').text if emit is not None and emit.find('.//CNPJ') is not None else ""
+        fornecedor_nome = emit.find('.//xNome').text if emit is not None and emit.find('.//xNome') is not None else ""
+        
+        # Dados da NF
+        ide = root.find('.//nfe:ide', ns) or root.find('.//ide')
+        numero_nf = ide.find('.//nNF').text if ide is not None and ide.find('.//nNF') is not None else ""
+        
+        # Totais
+        total = root.find('.//nfe:total//nfe:ICMSTot', ns) or root.find('.//total//ICMSTot')
+        valor_total = float(total.find('.//vNF').text) if total is not None and total.find('.//vNF') is not None else 0.0
+        valor_produtos = float(total.find('.//vProd').text) if total is not None and total.find('.//vProd') is not None else 0.0
+        valor_icms = float(total.find('.//vICMS').text) if total is not None and total.find('.//vICMS') is not None else 0.0
+        
+        # Itens da NF
+        itens = []
+        for det in root.findall('.//nfe:det', ns) or root.findall('.//det'):
+            prod = det.find('.//nfe:prod', ns) or det.find('.//prod')
+            if prod is not None:
+                item = {
+                    "codigo": prod.find('.//cProd').text if prod.find('.//cProd') is not None else "",
+                    "descricao": prod.find('.//xProd').text if prod.find('.//xProd') is not None else "",
+                    "ean": prod.find('.//cEAN').text if prod.find('.//cEAN') is not None else "",
+                    "quantidade": float(prod.find('.//qCom').text) if prod.find('.//qCom') is not None else 0.0,
+                    "valor_unitario": float(prod.find('.//vUnCom').text) if prod.find('.//vUnCom') is not None else 0.0,
+                    "valor_total": float(prod.find('.//vProd').text) if prod.find('.//vProd') is not None else 0.0
+                }
+                itens.append(item)
+        
+        # Criar registro de processamento
+        xml_proc = XMLProcessamento(
+            arquivo_nome=file.filename,
+            fornecedor_cnpj=fornecedor_cnpj,
+            fornecedor_nome=fornecedor_nome,
+            numero_nf=numero_nf,
+            valor_total=valor_total,
+            valor_produtos=valor_produtos,
+            valor_icms=valor_icms,
+            itens=itens,
+            cnpj_destino=cnpj_destino
+        )
+        
+        await db.xml_processamentos.insert_one(xml_proc.dict())
+        
+        return {
+            "message": "XML processado com sucesso",
+            "dados": xml_proc.dict()
+        }
+        
+    except ET.ParseError:
+        raise HTTPException(status_code=400, detail="Arquivo XML inválido")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao processar XML: {str(e)}")
+
+@api_router.post("/xml/{xml_id}/processar")
+async def processar_xml_compra(xml_id: str, current_user: str = Depends(get_current_user)):
+    """Processa XML confirmando entrada no estoque e financeiro"""
+    xml_proc = await db.xml_processamentos.find_one({"_id": xml_id})  # Usar _id do MongoDB
+    if not xml_proc:
+        raise HTTPException(status_code=404, detail="XML não encontrado")
+    
+    if xml_proc["status"] == "PROCESSADO":
+        raise HTTPException(status_code=400, detail="XML já foi processado")
+    
+    try:
+        # Buscar ou criar fornecedor
+        fornecedor = await db.fornecedores.find_one({"cnpj": xml_proc["fornecedor_cnpj"]})
+        if not fornecedor:
+            # Criar fornecedor automaticamente
+            novo_fornecedor = Fornecedor(
+                nome=xml_proc["fornecedor_nome"],
+                cnpj=xml_proc["fornecedor_cnpj"]
+            )
+            await db.fornecedores.insert_one(novo_fornecedor.dict())
+            fornecedor_id = novo_fornecedor.id
+        else:
+            fornecedor_id = fornecedor["id"]
+        
+        # Processar cada item
+        for item in xml_proc["itens"]:
+            # Buscar produto pelo código/EAN
+            produto = await db.produtos.find_one({
+                "$or": [
+                    {"sku": item["codigo"]},
+                    {"ean": item["ean"]}
+                ]
+            })
+            
+            if produto:
+                produto_id = produto["id"]
+                valor_compra = item["valor_unitario"]
+                
+                # Aplicar regra ICMS diferencial se produto de fora do estado
+                if produto.get("fora_estado", False):
+                    valor_compra *= 1.06  # Adiciona 6%
+                
+                # Calcular novo custo médio
+                novo_custo_medio = await calcular_custo_medio(produto_id, valor_compra, int(item["quantidade"]))
+                
+                # Atualizar produto
+                await db.produtos.update_one(
+                    {"id": produto_id},
+                    {
+                        "$set": {
+                            "valor_compra": valor_compra,
+                            "custo_medio": novo_custo_medio,
+                            "updated_at": datetime.utcnow()
+                        }
+                    }
+                )
+                
+                # Atualizar estoque
+                await atualizar_estoque_produto(produto_id, xml_proc["cnpj_destino"], int(item["quantidade"]), "ENTRADA")
+                
+                # Criar movimentação de estoque
+                await criar_movimentacao_estoque(
+                    produto_id=produto_id,
+                    cnpj=xml_proc["cnpj_destino"],
+                    tipo="COMPRA",
+                    quantidade_entrada=int(item["quantidade"]),
+                    quantidade_saida=0,
+                    documento=f"NF {xml_proc['numero_nf']}",
+                    descricao=f"Compra - {item['descricao']}",
+                    valor_unitario=valor_compra,
+                    usuario=current_user
+                )
+        
+        # Criar conta a pagar
+        conta_pagar = ContaFinanceira(
+            tipo="PAGAR",
+            descricao=f"NF {xml_proc['numero_nf']} - {xml_proc['fornecedor_nome']}",
+            valor=xml_proc["valor_total"],
+            data_vencimento=date.today(),  # Configurar conforme necessário
+            categoria="COMPRAS",
+            fornecedor_id=fornecedor_id,
+            documento=xml_proc["numero_nf"],
+            cnpj=xml_proc["cnpj_destino"]
+        )
+        
+        await db.contas_financeiras.insert_one(conta_pagar.dict())
+        
+        # Marcar XML como processado
+        await db.xml_processamentos.update_one(
+            {"_id": xml_id},
+            {"$set": {"status": "PROCESSADO"}}
+        )
+        
+        return {"message": "XML processado e integrado com sucesso"}
+        
+    except Exception as e:
+        await db.xml_processamentos.update_one(
+            {"_id": xml_id},
+            {"$set": {"status": "ERRO"}}
+        )
+        raise HTTPException(status_code=500, detail=f"Erro ao processar: {str(e)}")
+
+# ============= INTEGRAÇÃO UPSELLER =============
+
+@api_router.get("/upseller/estoque")
+async def get_estoque_upseller():
+    """Retorna estoque consolidado para alimentar Upseller"""
+    produtos = await db.produtos.find({"ativo": True}).to_list(1000)
+    
+    estoque_upseller = []
+    for produto in produtos:
+        estoque_upseller.append({
+            "sku": produto["sku"],
+            "nome": produto["nome"],
+            "estoque_disponivel": produto["estoque_total"],
+            "custo_medio": produto["custo_medio"],
+            "preco_venda": produto["preco_venda"],
+            "atualizado_em": produto["updated_at"].isoformat()
+        })
+    
+    return {"produtos": estoque_upseller}
+
+@api_router.post("/upseller/venda")
+async def processar_venda_upseller(venda_data: dict):
+    """Recebe dados de venda do Upseller e processa"""
+    try:
+        # Extrair dados da venda
+        cnpj_vendedor = venda_data.get("cnpj_vendedor")
+        produtos_vendidos = venda_data.get("produtos", [])
+        valor_bruto = venda_data.get("valor_bruto", 0)
+        valor_liquido = venda_data.get("valor_liquido", 0)
+        taxas = venda_data.get("taxas", 0)
+        pedido_id = venda_data.get("pedido_id", "")
+        
+        lucro_total = 0
+        
+        # Processar cada produto vendido
+        for item in produtos_vendidos:
+            sku = item.get("sku")
+            quantidade = item.get("quantidade", 0)
+            preco_unitario = item.get("preco_unitario", 0)
+            
+            # Buscar produto
+            produto = await db.produtos.find_one({"sku": sku})
+            if produto:
+                produto_id = produto["id"]
+                custo_medio = produto["custo_medio"]
+                
+                # Calcular lucro do item
+                lucro_item = (preco_unitario - custo_medio) * quantidade
+                lucro_total += lucro_item
+                
+                # Baixar estoque (do CNPJ que vendeu)
+                await atualizar_estoque_produto(produto_id, cnpj_vendedor, quantidade, "SAIDA")
+                
+                # Criar movimentação de estoque
+                await criar_movimentacao_estoque(
+                    produto_id=produto_id,
+                    cnpj=cnpj_vendedor,
+                    tipo="VENDA",
+                    quantidade_entrada=0,
+                    quantidade_saida=quantidade,
+                    documento=pedido_id,
+                    descricao=f"Venda Upseller - {produto['nome']}",
+                    valor_unitario=preco_unitario,
+                    usuario="upseller"
+                )
+        
+        # Criar conta a receber (valor líquido)
+        conta_receber = ContaFinanceira(
+            tipo="RECEBER",
+            descricao=f"Venda Upseller - Pedido {pedido_id}",
+            valor=valor_liquido,
+            data_vencimento=date.today(),
+            categoria="VENDAS_MARKETPLACE",
+            documento=pedido_id,
+            cnpj=cnpj_vendedor
+        )
+        
+        await db.contas_financeiras.insert_one(conta_receber.dict())
+        
+        # Registrar taxas como despesa se houver
+        if taxas > 0:
+            taxa_despesa = ContaFinanceira(
+                tipo="PAGAR",
+                descricao=f"Taxas Upseller - Pedido {pedido_id}",
+                valor=taxas,
+                data_vencimento=date.today(),
+                categoria="TAXAS_MARKETPLACE",
+                documento=pedido_id,
+                cnpj=cnpj_vendedor,
+                status="PAGO"  # Taxas já são descontadas
+            )
+            
+            await db.contas_financeiras.insert_one(taxa_despesa.dict())
+        
+        return {
+            "message": "Venda processada com sucesso",
+            "lucro_bruto": lucro_total,
+            "valor_liquido": valor_liquido,
+            "produtos_processados": len(produtos_vendidos)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao processar venda: {str(e)}")
+
+# ============= DASHBOARD ROUTES =============
+
+@api_router.get("/dashboard")
+async def get_dashboard(current_user: str = Depends(get_current_user)):
+    # Contadores gerais
+    total_clientes = await db.clientes.count_documents({})
+    total_fornecedores = await db.fornecedores.count_documents({})
+    total_produtos = await db.produtos.count_documents({})
+    
+    # Valor do estoque (custo médio)
+    pipeline_estoque = [
+        {"$project": {"valor_estoque": {"$multiply": ["$estoque_total", "$custo_medio"]}}},
+        {"$group": {"_id": None, "total": {"$sum": "$valor_estoque"}}}
+    ]
+    valor_estoque = await db.produtos.aggregate(pipeline_estoque).to_list(1)
+    estoque_valor = valor_estoque[0]["total"] if valor_estoque else 0
+    
+    # Financeiro
+    relatorio_financeiro = await get_relatorios_financeiros(current_user)
+    
+    # Vendas do mês
+    today = date.today()
+    start_month = datetime(today.year, today.month, 1)
+    
+    vendas_mes = await db.movimentacoes_estoque.aggregate([
+        {"$match": {"tipo": "VENDA", "data": {"$gte": start_month}}},
+        {"$group": {"_id": None, "total_vendas": {"$sum": "$quantidade_saida"}, "valor_vendas": {"$sum": "$valor_total"}}}
+    ]).to_list(1)
+    
+    vendas_mes_data = vendas_mes[0] if vendas_mes else {"total_vendas": 0, "valor_vendas": 0}
+    
+    return {
+        "total_clientes": total_clientes,
+        "total_fornecedores": total_fornecedores,
+        "total_produtos": total_produtos,
+        "valor_estoque": round(estoque_valor, 2),
+        "vendas_mes": vendas_mes_data["total_vendas"],
+        "valor_vendas_mes": round(vendas_mes_data["valor_vendas"], 2),
+        "financeiro": relatorio_financeiro
+    }
+
+# Basic routes
+@api_router.get("/")
+async def root():
+    return {"message": "ERP System API - Fase 1", "version": "1.0.0", "features": ["Clientes", "Fornecedores", "Produtos", "Estoque Multi-CNPJ", "Financeiro", "XML Processing", "Upseller Integration"]}
+
+# Include the router in the main app
+app.include_router(api_router)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+@app.on_event("shutdown")
+async def shutdown_db_client():
+    client.close()
