@@ -2,13 +2,19 @@ import { useState, useEffect } from "react";
 import "./App.css";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import axios from "axios";
+
+// Components
 import LoginPage from "./components/LoginPage";
+import Layout from "./components/Layout";
 import Dashboard from "./components/Dashboard";
 import Clientes from "./components/Clientes";
+import Fornecedores from "./components/Fornecedores";
 import Produtos from "./components/Produtos";
+import Estoque from "./components/Estoque";
 import Financeiro from "./components/Financeiro";
-import HistoricoFinanceiro from "./components/HistoricoFinanceiro";
-import Layout from "./components/Layout";
+import ContasBanco from "./components/ContasBanco";
+import ProcessarXML from "./components/ProcessarXML";
+import UpselllerIntegration from "./components/UpselllerIntegration";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -113,9 +119,13 @@ function App() {
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="clientes" element={<Clientes />} />
+              <Route path="fornecedores" element={<Fornecedores />} />
               <Route path="produtos" element={<Produtos />} />
+              <Route path="estoque" element={<Estoque />} />
               <Route path="financeiro" element={<Financeiro />} />
-              <Route path="financeiro/historico" element={<HistoricoFinanceiro />} />
+              <Route path="contas-banco" element={<ContasBanco />} />
+              <Route path="processar-xml" element={<ProcessarXML />} />
+              <Route path="upseller" element={<UpselllerIntegration />} />
             </Route>
           ) : (
             <Route path="*" element={<Navigate to="/login" replace />} />

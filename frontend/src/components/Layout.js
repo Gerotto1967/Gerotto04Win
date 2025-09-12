@@ -9,26 +9,28 @@ import {
   LogOut, 
   Menu,
   X,
-  History,
-  ChevronDown,
-  ChevronRight
+  Building2,
+  Archive,
+  FileText,
+  Warehouse,
+  CreditCard,
+  Zap
 } from 'lucide-react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from './ui/dropdown-menu';
 
 const Layout = ({ user, onLogout }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [financeiroOpen, setFinanceiroOpen] = useState(false);
   const location = useLocation();
 
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: Home },
     { name: 'Clientes', href: '/clientes', icon: Users },
+    { name: 'Fornecedores', href: '/fornecedores', icon: Building2 },
     { name: 'Produtos', href: '/produtos', icon: Package },
+    { name: 'Estoque', href: '/estoque', icon: Warehouse },
+    { name: 'Financeiro', href: '/financeiro', icon: DollarSign },
+    { name: 'Contas Banco', href: '/contas-banco', icon: CreditCard },
+    { name: 'Processar XML', href: '/processar-xml', icon: FileText },
+    { name: 'Integração Upseller', href: '/upseller', icon: Zap },
   ];
 
   const isActive = (href) => location.pathname === href;
@@ -80,61 +82,6 @@ const Layout = ({ user, onLogout }) => {
                 </li>
               );
             })}
-            
-            {/* Menu Financeiro com submenu */}
-            <li>
-              <div>
-                <button
-                  onClick={() => setFinanceiroOpen(!financeiroOpen)}
-                  className={`flex items-center w-full px-3 py-2 text-sm font-medium rounded-md transition-colors text-left ${
-                    location.pathname.startsWith('/financeiro')
-                      ? 'bg-blue-100 text-blue-700'
-                      : 'text-gray-700 hover:bg-gray-100'
-                  }`}
-                >
-                  <DollarSign className="mr-3 h-5 w-5" />
-                  Financeiro
-                  {financeiroOpen ? (
-                    <ChevronDown className="ml-auto h-4 w-4" />
-                  ) : (
-                    <ChevronRight className="ml-auto h-4 w-4" />
-                  )}
-                </button>
-                
-                {financeiroOpen && (
-                  <ul className="mt-1 ml-6 space-y-1">
-                    <li>
-                      <Link
-                        to="/financeiro"
-                        className={`flex items-center px-3 py-2 text-sm rounded-md transition-colors ${
-                          isActive('/financeiro')
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'text-gray-600 hover:bg-gray-100'
-                        }`}
-                        onClick={() => setSidebarOpen(false)}
-                      >
-                        <DollarSign className="mr-3 h-4 w-4" />
-                        Cadastro
-                      </Link>
-                    </li>
-                    <li>
-                      <Link
-                        to="/financeiro/historico"
-                        className={`flex items-center px-3 py-2 text-sm rounded-md transition-colors ${
-                          isActive('/financeiro/historico')
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'text-gray-600 hover:bg-gray-100'
-                        }`}
-                        onClick={() => setSidebarOpen(false)}
-                      >
-                        <History className="mr-3 h-4 w-4" />
-                        Histórico
-                      </Link>
-                    </li>
-                  </ul>
-                )}
-              </div>
-            </li>
           </ul>
         </nav>
       </div>
