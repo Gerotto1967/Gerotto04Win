@@ -6,41 +6,43 @@ import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
-import { Plus, Edit, Trash2, Mail, Phone, MapPin, User } from 'lucide-react';
+import { Plus, Edit, Trash2, Mail, Phone, MapPin, Building2 } from 'lucide-react';
 import axios from 'axios';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-const Clientes = () => {
-  const [clientes, setClientes] = useState([]);
+const Fornecedores = () => {
+  const [fornecedores, setFornecedores] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingCliente, setEditingCliente] = useState(null);
+  const [editingFornecedor, setEditingFornecedor] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [formData, setFormData] = useState({
     nome: '',
+    cnpj: '',
     email: '',
     telefone: '',
     endereco: '',
     cidade: '',
     uf: '',
     cep: '',
-    cpf_cnpj: '',
+    contato: '',
+    condicoes_pagamento: '',
     observacoes: '',
     ativo: true
   });
 
   useEffect(() => {
-    fetchClientes();
+    fetchFornecedores();
   }, []);
 
-  const fetchClientes = async () => {
+  const fetchFornecedores = async () => {
     try {
-      const response = await axios.get(`${API}/clientes`);
-      setClientes(response.data);
+      const response = await axios.get(`${API}/fornecedores`);
+      setFornecedores(response.data);
     } catch (error) {
-      console.error('Erro ao carregar clientes:', error);
+      console.error('Erro ao carregar fornecedores:', error);
     } finally {
       setLoading(false);
     }
@@ -49,61 +51,65 @@ const Clientes = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      if (editingCliente) {
-        await axios.put(`${API}/clientes/${editingCliente.id}`, formData);
+      if (editingFornecedor) {
+        await axios.put(`${API}/fornecedores/${editingFornecedor.id}`, formData);
       } else {
-        await axios.post(`${API}/clientes`, formData);
+        await axios.post(`${API}/fornecedores`, formData);
       }
       
-      fetchClientes();
+      fetchFornecedores();
       resetForm();
       setIsDialogOpen(false);
     } catch (error) {
-      console.error('Erro ao salvar cliente:', error);
-      alert('Erro ao salvar cliente');
+      console.error('Erro ao salvar fornecedor:', error);
+      alert('Erro ao salvar fornecedor');
     }
   };
 
-  const handleEdit = (cliente) => {
-    setEditingCliente(cliente);
+  const handleEdit = (fornecedor) => {
+    setEditingFornecedor(fornecedor);
     setFormData({
-      nome: cliente.nome,
-      email: cliente.email,
-      telefone: cliente.telefone,
-      endereco: cliente.endereco,
-      cidade: cliente.cidade || '',
-      uf: cliente.uf || '',
-      cep: cliente.cep || '',
-      cpf_cnpj: cliente.cpf_cnpj || '',
-      observacoes: cliente.observacoes || '',
-      ativo: cliente.ativo
+      nome: fornecedor.nome,
+      cnpj: fornecedor.cnpj,
+      email: fornecedor.email || '',
+      telefone: fornecedor.telefone || '',
+      endereco: fornecedor.endereco || '',
+      cidade: fornecedor.cidade || '',
+      uf: fornecedor.uf || '',
+      cep: fornecedor.cep || '',
+      contato: fornecedor.contato || '',
+      condicoes_pagamento: fornecedor.condicoes_pagamento || '',
+      observacoes: fornecedor.observacoes || '',
+      ativo: fornecedor.ativo
     });
     setIsDialogOpen(true);
   };
 
   const handleDelete = async (id) => {
-    if (window.confirm('Tem certeza que deseja deletar este cliente?')) {
+    if (window.confirm('Tem certeza que deseja deletar este fornecedor?')) {
       try {
-        await axios.delete(`${API}/clientes/${id}`);
-        fetchClientes();
+        await axios.delete(`${API}/fornecedores/${id}`);
+        fetchFornecedores();
       } catch (error) {
-        console.error('Erro ao deletar cliente:', error);
-        alert('Erro ao deletar cliente');
+        console.error('Erro ao deletar fornecedor:', error);
+        alert('Erro ao deletar fornecedor');
       }
     }
   };
 
   const resetForm = () => {
-    setEditingCliente(null);
+    setEditingFornecedor(null);
     setFormData({
       nome: '',
+      cnpj: '',
       email: '',
       telefone: '',
       endereco: '',
       cidade: '',
       uf: '',
       cep: '',
-      cpf_cnpj: '',
+      contato: '',
+      condicoes_pagamento: '',
       observacoes: '',
       ativo: true
     });
@@ -117,11 +123,11 @@ const Clientes = () => {
     }));
   };
 
-  const filteredClientes = clientes.filter(cliente =>
-    cliente.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    cliente.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    cliente.telefone.includes(searchTerm) ||
-    (cliente.cpf_cnpj && cliente.cpf_cnpj.includes(searchTerm))
+  const filteredFornecedores = fornecedores.filter(fornecedor =>
+    fornecedor.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    fornecedor.cnpj.includes(searchTerm) ||
+    (fornecedor.email && fornecedor.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (fornecedor.telefone && fornecedor.telefone.includes(searchTerm))
   );
 
   if (loading) {
@@ -136,80 +142,92 @@ const Clientes = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Clientes</h1>
-          <p className="text-gray-600">Gerencie sua base de clientes</p>
+          <h1 className="text-3xl font-bold text-gray-900">Fornecedores</h1>
+          <p className="text-gray-600">Gerencie sua rede de fornecedores</p>
         </div>
         
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button onClick={resetForm}>
               <Plus className="mr-2 h-4 w-4" />
-              Novo Cliente
+              Novo Fornecedor
             </Button>
           </DialogTrigger>
           
           <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
-                {editingCliente ? 'Editar Cliente' : 'Novo Cliente'}
+                {editingFornecedor ? 'Editar Fornecedor' : 'Novo Fornecedor'}
               </DialogTitle>
               <DialogDescription>
-                {editingCliente ? 'Atualize as informações do cliente' : 'Adicione um novo cliente ao sistema'}
+                {editingFornecedor ? 'Atualize as informações do fornecedor' : 'Adicione um novo fornecedor ao sistema'}
               </DialogDescription>
             </DialogHeader>
             
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2 col-span-2">
-                  <Label htmlFor="nome">Nome Completo *</Label>
+                  <Label htmlFor="nome">Nome da Empresa *</Label>
                   <Input
                     id="nome"
                     name="nome"
                     value={formData.nome}
                     onChange={handleInputChange}
-                    placeholder="Nome completo do cliente"
+                    placeholder="Razão social do fornecedor"
                     required
                   />
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="email">E-mail *</Label>
+                  <Label htmlFor="cnpj">CNPJ *</Label>
+                  <Input
+                    id="cnpj"
+                    name="cnpj"
+                    value={formData.cnpj}
+                    onChange={handleInputChange}
+                    placeholder="00.000.000/0000-00"
+                    required
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="contato">Pessoa de Contato</Label>
+                  <Input
+                    id="contato"
+                    name="contato"
+                    value={formData.contato}
+                    onChange={handleInputChange}
+                    placeholder="Nome do contato"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="email">E-mail</Label>
                   <Input
                     id="email"
                     name="email"
                     type="email"
                     value={formData.email}
                     onChange={handleInputChange}
-                    placeholder="email@exemplo.com"
-                    required
+                    placeholder="email@fornecedor.com"
                   />
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="telefone">Telefone *</Label>
+                  <Label htmlFor="telefone">Telefone</Label>
                   <Input
                     id="telefone"
                     name="telefone"
                     value={formData.telefone}
                     onChange={handleInputChange}
-                    placeholder="(11) 99999-0000"
-                    required
+                    placeholder="(11) 3333-4444"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="cpf_cnpj">CPF/CNPJ</Label>
-                  <Input
-                    id="cpf_cnpj"
-                    name="cpf_cnpj"
-                    value={formData.cpf_cnpj}
-                    onChange={handleInputChange}
-                    placeholder="000.000.000-00"
-                  />
-                </div>
-                
                 <div className="space-y-2">
                   <Label htmlFor="cep">CEP</Label>
                   <Input
@@ -218,6 +236,17 @@ const Clientes = () => {
                     value={formData.cep}
                     onChange={handleInputChange}
                     placeholder="00000-000"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="cidade">Cidade</Label>
+                  <Input
+                    id="cidade"
+                    name="cidade"
+                    value={formData.cidade}
+                    onChange={handleInputChange}
+                    placeholder="Cidade"
                   />
                 </div>
                 
@@ -234,29 +263,26 @@ const Clientes = () => {
                 </div>
               </div>
               
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="endereco">Endereço *</Label>
-                  <Input
-                    id="endereco"
-                    name="endereco"
-                    value={formData.endereco}
-                    onChange={handleInputChange}
-                    placeholder="Rua, número, bairro"
-                    required
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="cidade">Cidade</Label>
-                  <Input
-                    id="cidade"
-                    name="cidade"
-                    value={formData.cidade}
-                    onChange={handleInputChange}
-                    placeholder="Cidade"
-                  />
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="endereco">Endereço</Label>
+                <Input
+                  id="endereco"
+                  name="endereco"
+                  value={formData.endereco}
+                  onChange={handleInputChange}
+                  placeholder="Rua, número, bairro"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="condicoes_pagamento">Condições de Pagamento</Label>
+                <Input
+                  id="condicoes_pagamento"
+                  name="condicoes_pagamento"
+                  value={formData.condicoes_pagamento}
+                  onChange={handleInputChange}
+                  placeholder="Ex: 30/60/90 dias, À vista com desconto 3%"
+                />
               </div>
               
               <div className="space-y-2">
@@ -266,7 +292,7 @@ const Clientes = () => {
                   name="observacoes"
                   value={formData.observacoes}
                   onChange={handleInputChange}
-                  placeholder="Observações adicionais"
+                  placeholder="Observações importantes sobre o fornecedor"
                   rows={3}
                 />
               </div>
@@ -280,7 +306,7 @@ const Clientes = () => {
                   onChange={handleInputChange}
                   className="rounded"
                 />
-                <Label htmlFor="ativo">Cliente ativo</Label>
+                <Label htmlFor="ativo">Fornecedor ativo</Label>
               </div>
               
               <div className="flex justify-end space-x-2">
@@ -292,7 +318,7 @@ const Clientes = () => {
                   Cancelar
                 </Button>
                 <Button type="submit">
-                  {editingCliente ? 'Atualizar' : 'Salvar'}
+                  {editingFornecedor ? 'Atualizar' : 'Salvar'}
                 </Button>
               </div>
             </form>
@@ -302,13 +328,13 @@ const Clientes = () => {
 
       <Card>
         <CardHeader>
-          <CardTitle>Lista de Clientes</CardTitle>
+          <CardTitle>Lista de Fornecedores</CardTitle>
           <CardDescription>
-            Total de {filteredClientes.length} cliente(s) {searchTerm && `encontrado(s) para "${searchTerm}"`}
+            Total de {filteredFornecedores.length} fornecedor(es) {searchTerm && `encontrado(s) para "${searchTerm}"`}
           </CardDescription>
           <div className="flex items-center space-x-2">
             <Input
-              placeholder="Buscar por nome, email, telefone ou CPF/CNPJ..."
+              placeholder="Buscar por nome, CNPJ, email ou telefone..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="max-w-sm"
@@ -316,11 +342,11 @@ const Clientes = () => {
           </div>
         </CardHeader>
         <CardContent>
-          {filteredClientes.length === 0 ? (
+          {filteredFornecedores.length === 0 ? (
             <div className="text-center py-8">
-              <User className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+              <Building2 className="mx-auto h-12 w-12 text-gray-400 mb-4" />
               <p className="text-gray-500">
-                {searchTerm ? 'Nenhum cliente encontrado para a busca' : 'Nenhum cliente cadastrado'}
+                {searchTerm ? 'Nenhum fornecedor encontrado para a busca' : 'Nenhum fornecedor cadastrado'}
               </p>
             </div>
           ) : (
@@ -328,60 +354,76 @@ const Clientes = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Nome</TableHead>
+                    <TableHead>Empresa</TableHead>
+                    <TableHead>CNPJ</TableHead>
                     <TableHead>Contato</TableHead>
                     <TableHead>Localização</TableHead>
-                    <TableHead>CPF/CNPJ</TableHead>
+                    <TableHead>Condições</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredClientes.map((cliente) => (
-                    <TableRow key={cliente.id}>
+                  {filteredFornecedores.map((fornecedor) => (
+                    <TableRow key={fornecedor.id}>
                       <TableCell>
-                        <div className="font-medium">{cliente.nome}</div>
-                        {cliente.observacoes && (
-                          <div className="text-sm text-gray-500 max-w-xs truncate">
-                            {cliente.observacoes}
-                          </div>
-                        )}
+                        <div>
+                          <div className="font-medium">{fornecedor.nome}</div>
+                          {fornecedor.contato && (
+                            <div className="text-sm text-gray-500">
+                              Contato: {fornecedor.contato}
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-mono text-sm">
+                        {fornecedor.cnpj}
                       </TableCell>
                       <TableCell>
                         <div className="space-y-1">
-                          <div className="flex items-center text-sm">
-                            <Mail className="mr-2 h-3 w-3 text-gray-400" />
-                            {cliente.email}
-                          </div>
-                          <div className="flex items-center text-sm">
-                            <Phone className="mr-2 h-3 w-3 text-gray-400" />
-                            {cliente.telefone}
-                          </div>
+                          {fornecedor.email && (
+                            <div className="flex items-center text-sm">
+                              <Mail className="mr-2 h-3 w-3 text-gray-400" />
+                              {fornecedor.email}
+                            </div>
+                          )}
+                          {fornecedor.telefone && (
+                            <div className="flex items-center text-sm">
+                              <Phone className="mr-2 h-3 w-3 text-gray-400" />
+                              {fornecedor.telefone}
+                            </div>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center text-sm">
-                          <MapPin className="mr-2 h-3 w-3 text-gray-400" />
-                          <div>
-                            <div className="max-w-xs truncate">{cliente.endereco}</div>
-                            {(cliente.cidade || cliente.uf) && (
-                              <div className="text-xs text-gray-500">
-                                {cliente.cidade}{cliente.cidade && cliente.uf && ' - '}{cliente.uf}
-                              </div>
-                            )}
+                        {(fornecedor.endereco || fornecedor.cidade || fornecedor.uf) ? (
+                          <div className="flex items-center text-sm">
+                            <MapPin className="mr-2 h-3 w-3 text-gray-400" />
+                            <div>
+                              {fornecedor.endereco && (
+                                <div className="max-w-xs truncate">{fornecedor.endereco}</div>
+                              )}
+                              {(fornecedor.cidade || fornecedor.uf) && (
+                                <div className="text-xs text-gray-500">
+                                  {fornecedor.cidade}{fornecedor.cidade && fornecedor.uf && ' - '}{fornecedor.uf}
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
+                        ) : '-'}
                       </TableCell>
                       <TableCell>
-                        {cliente.cpf_cnpj || '-'}
+                        <div className="max-w-xs truncate text-sm">
+                          {fornecedor.condicoes_pagamento || '-'}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          cliente.ativo 
+                          fornecedor.ativo 
                             ? 'bg-green-100 text-green-800' 
                             : 'bg-red-100 text-red-800'
                         }`}>
-                          {cliente.ativo ? 'Ativo' : 'Inativo'}
+                          {fornecedor.ativo ? 'Ativo' : 'Inativo'}
                         </span>
                       </TableCell>
                       <TableCell className="text-right">
@@ -389,14 +431,14 @@ const Clientes = () => {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => handleEdit(cliente)}
+                            onClick={() => handleEdit(fornecedor)}
                           >
                             <Edit className="h-4 w-4" />
                           </Button>
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => handleDelete(cliente.id)}
+                            onClick={() => handleDelete(fornecedor.id)}
                             className="text-red-600 hover:text-red-700"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -415,4 +457,4 @@ const Clientes = () => {
   );
 };
 
-export default Clientes;
+export default Fornecedores;
