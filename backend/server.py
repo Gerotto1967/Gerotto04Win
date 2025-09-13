@@ -836,39 +836,71 @@ async def processar_xml_compra(xml_id: str, current_user: str = Depends(get_curr
         )
         raise HTTPException(status_code=500, detail=f"Erro ao processar: {str(e)}")
 
-# ============= INTEGRAÇÃO UPSELLER =============
+# ============= MARKETPLACE/UPSELLER - EXPORTAÇÃO DE DADOS =============
 
-@api_router.get("/upseller/estoque")
-async def get_estoque_upseller():
-    """Retorna estoque consolidado para alimentar Upseller"""
+@api_router.get("/marketplace/exportar-estoque")
+async def exportar_estoque_marketplace(formato: str = "json"):
+    """Exporta estoque consolidado para marketplaces (CSV, JSON, XML)"""
     produtos = await db.produtos.find({"ativo": True}).to_list(1000)
     
-    estoque_upseller = []
+    dados_exportacao = []
     for produto in produtos:
-        estoque_upseller.append({
+        dados_exportacao.append({
             "sku": produto["sku"],
             "nome": produto["nome"],
+            "descricao": produto.get("descricao", ""),
+            "marca": produto.get("marca", ""),
+            "categoria": produto.get("categoria", ""),
+            "ean": produto.get("ean", ""),
             "estoque_disponivel": produto["estoque_total"],
-            "custo_medio": produto["custo_medio"],
-            "preco_venda": produto["preco_venda"],
+            "custo_medio": round(produto["custo_medio"], 2),
+            "preco_venda": round(produto["preco_venda"], 2),
+            "margem_percentual": round(produto.get("margem_percentual", 0), 2),
+            "ativo": produto["ativo"],
             "atualizado_em": produto["updated_at"].isoformat()
         })
     
-    return {"produtos": estoque_upseller}
+    if formato == "csv":
+        import csv
+        import io
+        
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=dados_exportacao[0].keys() if dados_exportacao else [])
+        writer.writeheader()
+        writer.writerows(dados_exportacao)
+        
+        return {
+            "formato": "csv",
+            "dados": output.getvalue(),
+            "total_produtos": len(dados_exportacao)
+        }
+    
+    return {
+        "formato": "json", 
+        "produtos": dados_exportacao,
+        "total_produtos": len(dados_exportacao),
+        "exportado_em": datetime.utcnow().isoformat()
+    }
 
-@api_router.post("/upseller/venda")
-async def processar_venda_upseller(venda_data: dict):
-    """Recebe dados de venda do Upseller e processa"""
+@api_router.post("/marketplace/processar-venda")
+async def processar_venda_marketplace(venda_data: dict):
+    """Processa vendas vindas de marketplaces (entrada manual de dados)"""
     try:
         # Extrair dados da venda
         cnpj_vendedor = venda_data.get("cnpj_vendedor")
+        marketplace = venda_data.get("marketplace", "UPSELLER")
         produtos_vendidos = venda_data.get("produtos", [])
         valor_bruto = venda_data.get("valor_bruto", 0)
         valor_liquido = venda_data.get("valor_liquido", 0)
         taxas = venda_data.get("taxas", 0)
         pedido_id = venda_data.get("pedido_id", "")
+        data_venda = venda_data.get("data_venda", date.today().isoformat())
+        
+        if not cnpj_vendedor or not produtos_vendidos:
+            raise HTTPException(status_code=400, detail="CNPJ vendedor e produtos são obrigatórios")
         
         lucro_total = 0
+        produtos_processados = 0
         
         # Processar cada produto vendido
         for item in produtos_vendidos:
@@ -876,11 +908,22 @@ async def processar_venda_upseller(venda_data: dict):
             quantidade = item.get("quantidade", 0)
             preco_unitario = item.get("preco_unitario", 0)
             
+            if not sku or quantidade <= 0:
+                continue
+            
             # Buscar produto
             produto = await db.produtos.find_one({"sku": sku})
             if produto:
                 produto_id = produto["id"]
                 custo_medio = produto["custo_medio"]
+                
+                # Verificar se há estoque suficiente no CNPJ
+                estoque_cnpj = next((e for e in produto.get("estoques_cnpj", []) if e["cnpj"] == cnpj_vendedor), None)
+                if not estoque_cnpj or estoque_cnpj["quantidade"] < quantidade:
+                    raise HTTPException(
+                        status_code=400, 
+                        detail=f"Estoque insuficiente para produto {sku} no CNPJ {cnpj_vendedor}"
+                    )
                 
                 # Calcular lucro do item
                 lucro_item = (preco_unitario - custo_medio) * quantidade
@@ -897,32 +940,35 @@ async def processar_venda_upseller(venda_data: dict):
                     quantidade_entrada=0,
                     quantidade_saida=quantidade,
                     documento=pedido_id,
-                    descricao=f"Venda Upseller - {produto['nome']}",
+                    descricao=f"Venda {marketplace} - {produto['nome']}",
                     valor_unitario=preco_unitario,
-                    usuario="upseller"
+                    usuario="marketplace"
                 )
+                
+                produtos_processados += 1
         
         # Criar conta a receber (valor líquido)
-        conta_receber = ContaFinanceira(
-            tipo="RECEBER",
-            descricao=f"Venda Upseller - Pedido {pedido_id}",
-            valor=valor_liquido,
-            data_vencimento=date.today(),
-            categoria="VENDAS_MARKETPLACE",
-            documento=pedido_id,
-            cnpj=cnpj_vendedor
-        )
-        
-        await db.contas_financeiras.insert_one(conta_receber.dict())
+        if valor_liquido > 0:
+            conta_receber = ContaFinanceira(
+                tipo="RECEBER",
+                descricao=f"Venda {marketplace} - Pedido {pedido_id}",
+                valor=valor_liquido,
+                data_vencimento=datetime.strptime(data_venda, "%Y-%m-%d").date(),
+                categoria=f"VENDAS_{marketplace}",
+                documento=pedido_id,
+                cnpj=cnpj_vendedor
+            )
+            
+            await db.contas_financeiras.insert_one(conta_receber.dict())
         
         # Registrar taxas como despesa se houver
         if taxas > 0:
             taxa_despesa = ContaFinanceira(
                 tipo="PAGAR",
-                descricao=f"Taxas Upseller - Pedido {pedido_id}",
+                descricao=f"Taxas {marketplace} - Pedido {pedido_id}",
                 valor=taxas,
-                data_vencimento=date.today(),
-                categoria="TAXAS_MARKETPLACE",
+                data_vencimento=datetime.strptime(data_venda, "%Y-%m-%d").date(),
+                categoria=f"TAXAS_{marketplace}",
                 documento=pedido_id,
                 cnpj=cnpj_vendedor,
                 status="PAGO"  # Taxas já são descontadas
@@ -932,13 +978,72 @@ async def processar_venda_upseller(venda_data: dict):
         
         return {
             "message": "Venda processada com sucesso",
-            "lucro_bruto": lucro_total,
+            "marketplace": marketplace,
+            "pedido_id": pedido_id,
+            "lucro_bruto": round(lucro_total, 2),
             "valor_liquido": valor_liquido,
-            "produtos_processados": len(produtos_vendidos)
+            "produtos_processados": produtos_processados
         }
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao processar venda: {str(e)}")
+
+@api_router.get("/marketplace/relatorio-lucros")
+async def relatorio_lucros_marketplace(marketplace: str = None, periodo_dias: int = 30):
+    """Relatório de lucros por marketplace"""
+    data_inicio = datetime.utcnow() - relativedelta(days=periodo_dias)
+    
+    filter_query = {
+        "tipo": "VENDA",
+        "data": {"$gte": data_inicio}
+    }
+    
+    if marketplace:
+        filter_query["descricao"] = {"$regex": marketplace, "$options": "i"}
+    
+    # Buscar movimentações de venda
+    movimentacoes = await db.movimentacoes_estoque.find(filter_query).to_list(1000)
+    
+    lucro_total = 0
+    vendas_por_marketplace = {}
+    
+    for mov in movimentacoes:
+        # Extrair marketplace da descrição
+        desc = mov.get("descricao", "")
+        if "UPSELLER" in desc:
+            marketplace_nome = "UPSELLER"
+        elif "MERCADO LIVRE" in desc:
+            marketplace_nome = "MERCADO_LIVRE"
+        else:
+            marketplace_nome = "OUTROS"
+        
+        if marketplace_nome not in vendas_por_marketplace:
+            vendas_por_marketplace[marketplace_nome] = {
+                "vendas": 0,
+                "quantidade": 0,
+                "valor_vendido": 0,
+                "lucro_estimado": 0
+            }
+        
+        # Buscar produto para calcular lucro
+        produto = await db.produtos.find_one({"id": mov["produto_id"]})
+        if produto:
+            custo_medio = produto.get("custo_medio", 0)
+            lucro_item = (mov["valor_unitario"] - custo_medio) * mov["quantidade_saida"]
+            
+            vendas_por_marketplace[marketplace_nome]["vendas"] += 1
+            vendas_por_marketplace[marketplace_nome]["quantidade"] += mov["quantidade_saida"]
+            vendas_por_marketplace[marketplace_nome]["valor_vendido"] += mov["valor_total"]
+            vendas_por_marketplace[marketplace_nome]["lucro_estimado"] += lucro_item
+            
+            lucro_total += lucro_item
+    
+    return {
+        "periodo_dias": periodo_dias,
+        "lucro_total": round(lucro_total, 2),
+        "vendas_por_marketplace": vendas_por_marketplace,
+        "gerado_em": datetime.utcnow().isoformat()
+    }
 
 # ============= DASHBOARD ROUTES =============
 
