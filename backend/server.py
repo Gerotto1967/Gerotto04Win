@@ -39,14 +39,17 @@ app = FastAPI(title="ERP System", version="1.0.0")
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
-# CNPJs configurados
-CNPJS_CONFIG = {
-    "11111111000101": {"nome": "EMPRESA ABC LTDA", "uf": "SP"},
-    "22222222000102": {"nome": "EMPRESA XYZ LTDA", "uf": "SP"}, 
-    "33333333000103": {"nome": "EMPRESA 123 LTDA", "uf": "SP"},
-    "44444444000104": {"nome": "EMPRESA DEF LTDA", "uf": "RJ"},
-    "55555555000105": {"nome": "EMPRESA GHI LTDA", "uf": "MG"}
-}
+# Função para buscar empresas cadastradas
+async def get_empresas_config():
+    """Retorna configuração de empresas do banco de dados"""
+    empresas = await db.empresas.find({"ativo": True}).to_list(100)
+    config = {}
+    for empresa in empresas:
+        config[empresa["cnpj"]] = {
+            "nome": empresa["nome_fantasia"] or empresa["razao_social"], 
+            "uf": empresa["uf"]
+        }
+    return config
 
 # ============= MODELS =============
 
