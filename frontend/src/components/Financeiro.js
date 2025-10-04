@@ -458,7 +458,7 @@ const Financeiro = () => {
                 <SelectValue placeholder="Todos status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={null}>Todos status</SelectItem>
+                <SelectItem value="all">Todos status</SelectItem>
                 <SelectItem value="PENDENTE">Pendente</SelectItem>
                 <SelectItem value="PAGO">Pago</SelectItem>
                 <SelectItem value="VENCIDO">Vencido</SelectItem>
