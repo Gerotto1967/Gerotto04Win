@@ -35,7 +35,7 @@ const Empresas = () => {
 
   const fetchEmpresas = async () => {
     try {
-      const token = localStorage.getItem('authToken');
+      const token = localStorage.getItem('token');
       const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/empresas`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -65,7 +65,7 @@ const Empresas = () => {
     e.preventDefault();
     
     try {
-      const token = localStorage.getItem('authToken');
+      const token = localStorage.getItem('token');
       const url = editingEmpresa 
         ? `${process.env.REACT_APP_BACKEND_URL}/api/empresas/${editingEmpresa.id}`
         : `${process.env.REACT_APP_BACKEND_URL}/api/empresas`;
@@ -125,7 +125,7 @@ const Empresas = () => {
     }
 
     try {
-      const token = localStorage.getItem('authToken');
+      const token = localStorage.getItem('token');
       const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/empresas/${empresaId}`, {
         method: 'DELETE',
         headers: {
