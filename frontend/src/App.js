@@ -119,6 +119,7 @@ function App() {
             <Route path="/" element={<Layout user={user} onLogout={logout} />}>
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="dashboard" element={<Dashboard />} />
+              <Route path="empresas" element={<Empresas />} />
               <Route path="clientes" element={<Clientes />} />
               <Route path="fornecedores" element={<Fornecedores />} />
               <Route path="produtos" element={<Produtos />} />
