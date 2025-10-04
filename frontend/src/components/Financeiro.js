@@ -453,7 +453,7 @@ const Financeiro = () => {
               </SelectContent>
             </Select>
             
-            <Select value={filtroStatus || undefined} onValueChange={setFiltroStatus}>
+            <Select value={filtroStatus} onValueChange={setFiltroStatus}>
               <SelectTrigger className="w-40">
                 <SelectValue placeholder="Todos status" />
               </SelectTrigger>
