@@ -23,6 +23,7 @@ const Layout = ({ user, onLogout }) => {
 
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: Home },
+    { name: 'Empresas', href: '/empresas', icon: Building2 },
     { name: 'Clientes', href: '/clientes', icon: Users },
     { name: 'Fornecedores', href: '/fornecedores', icon: Building2 },
     { name: 'Produtos', href: '/produtos', icon: Package },
