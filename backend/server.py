@@ -2,14 +2,12 @@ from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import select, insert, update, delete, and_, or_, func, text
+from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, date
 import jwt
@@ -24,152 +22,10 @@ import requests
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# Database setup
-DATABASE_URL = os.environ['DATABASE_URL']
-engine = create_async_engine(DATABASE_URL)
-async_session = async_sessionmaker(engine, expire_on_commit=False)
-
-# SQLAlchemy Base
-class Base(DeclarativeBase):
-    pass
-
-# Database Models
-from sqlalchemy import String, DateTime, Boolean, Integer, Float, JSON, Date, Time, Text
-
-class User(Base):
-    __tablename__ = "users"
-    
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    email: Mapped[str] = mapped_column(String, unique=True)
-    hashed_password: Mapped[str] = mapped_column(String)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
-class Empresa(Base):
-    __tablename__ = "empresas"
-    
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    cnpj: Mapped[str] = mapped_column(String, unique=True)
-    razao_social: Mapped[str] = mapped_column(String)
-    nome_fantasia: Mapped[Optional[str]] = mapped_column(String)
-    endereco: Mapped[Optional[str]] = mapped_column(String)
-    cidade: Mapped[Optional[str]] = mapped_column(String)
-    uf: Mapped[str] = mapped_column(String)
-    cep: Mapped[Optional[str]] = mapped_column(String)
-    telefone: Mapped[Optional[str]] = mapped_column(String)
-    email: Mapped[Optional[str]] = mapped_column(String)
-    ativo: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
-class Cliente(Base):
-    __tablename__ = "clientes"
-    
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    nome: Mapped[str] = mapped_column(String)
-    email: Mapped[Optional[str]] = mapped_column(String)
-    telefone: Mapped[Optional[str]] = mapped_column(String)
-    cpf_cnpj: Mapped[Optional[str]] = mapped_column(String)
-    endereco: Mapped[Optional[str]] = mapped_column(String)
-    cidade: Mapped[Optional[str]] = mapped_column(String)
-    uf: Mapped[Optional[str]] = mapped_column(String)
-    cep: Mapped[Optional[str]] = mapped_column(String)
-    ativo: Mapped[bool] = mapped_column(Boolean, default=True)
-    observacoes: Mapped[Optional[str]] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
-class Fornecedor(Base):
-    __tablename__ = "fornecedores"
-    
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    nome: Mapped[str] = mapped_column(String)
-    cnpj: Mapped[Optional[str]] = mapped_column(String)
-    email: Mapped[Optional[str]] = mapped_column(String)
-    telefone: Mapped[Optional[str]] = mapped_column(String)
-    endereco: Mapped[Optional[str]] = mapped_column(String)
-    cidade: Mapped[Optional[str]] = mapped_column(String)
-    uf: Mapped[Optional[str]] = mapped_column(String)
-    cep: Mapped[Optional[str]] = mapped_column(String)
-    contato: Mapped[Optional[str]] = mapped_column(String)
-    prazo_pagamento: Mapped[Optional[int]] = mapped_column(Integer, default=30)
-    ativo: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
-class Produto(Base):
-    __tablename__ = "produtos"
-    
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    nome: Mapped[str] = mapped_column(String)
-    codigo: Mapped[Optional[str]] = mapped_column(String)
-    codigo_barras: Mapped[Optional[str]] = mapped_column(String)
-    categoria: Mapped[Optional[str]] = mapped_column(String)
-    descricao: Mapped[Optional[str]] = mapped_column(Text)
-    preco_venda: Mapped[float] = mapped_column(Float, default=0.0)
-    valor_pago: Mapped[float] = mapped_column(Float, default=0.0)  # Último valor pago
-    custo_medio: Mapped[float] = mapped_column(Float, default=0.0)  # Custo médio calculado
-    unidade_medida: Mapped[str] = mapped_column(String, default="UN")
-    peso: Mapped[Optional[float]] = mapped_column(Float)
-    imagem: Mapped[Optional[str]] = mapped_column(String)  # URL ou base64 da imagem
-    ativo: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
-class Estoque(Base):
-    __tablename__ = "estoque"
-    
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    produto_id: Mapped[str] = mapped_column(String)
-    cnpj_empresa: Mapped[str] = mapped_column(String)  # CNPJ da empresa
-    quantidade: Mapped[float] = mapped_column(Float, default=0.0)
-    quantidade_reservada: Mapped[float] = mapped_column(Float, default=0.0)
-    estoque_minimo: Mapped[float] = mapped_column(Float, default=0.0)
-    localizacao: Mapped[Optional[str]] = mapped_column(String)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-class EstoqueMovimento(Base):
-    __tablename__ = "estoque_movimentos"
-    
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    produto_id: Mapped[str] = mapped_column(String)
-    cnpj_empresa: Mapped[str] = mapped_column(String)
-    tipo: Mapped[str] = mapped_column(String)  # entrada, saida, ajuste, transferencia
-    quantidade: Mapped[float] = mapped_column(Float)
-    quantidade_anterior: Mapped[float] = mapped_column(Float)
-    valor_unitario: Mapped[float] = mapped_column(Float)
-    observacao: Mapped[Optional[str]] = mapped_column(String)
-    documento: Mapped[Optional[str]] = mapped_column(String)
-    usuario: Mapped[Optional[str]] = mapped_column(String)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
-class ContaBanco(Base):
-    __tablename__ = "contas_banco"
-    
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    nome: Mapped[str] = mapped_column(String)
-    banco: Mapped[str] = mapped_column(String)
-    agencia: Mapped[Optional[str]] = mapped_column(String)
-    conta: Mapped[Optional[str]] = mapped_column(String)
-    tipo: Mapped[str] = mapped_column(String)  # conta_corrente, poupanca, caixa
-    saldo_inicial: Mapped[float] = mapped_column(Float, default=0.0)
-    saldo_atual: Mapped[float] = mapped_column(Float, default=0.0)
-    ativo: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-
-class ContaRecebePaga(Base):
-    __tablename__ = "contas_recebe_paga"
-    
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    tipo: Mapped[str] = mapped_column(String)  # receber, pagar
-    descricao: Mapped[str] = mapped_column(String)
-    valor: Mapped[float] = mapped_column(Float)
-    data_vencimento: Mapped[date] = mapped_column(Date)
-    data_pagamento: Mapped[Optional[date]] = mapped_column(Date)
-    valor_pago: Mapped[Optional[float]] = mapped_column(Float)
-    status: Mapped[str] = mapped_column(String, default="pendente")  # pendente, pago, vencido
-    categoria: Mapped[Optional[str]] = mapped_column(String)
-    cliente_fornecedor_id: Mapped[Optional[str]] = mapped_column(String)
-    conta_banco_id: Mapped[Optional[str]] = mapped_column(String)
-    observacoes: Mapped[Optional[str]] = mapped_column(Text)
-    documento: Mapped[Optional[str]] = mapped_column(String)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+# MongoDB connection
+mongo_url = os.environ['MONGO_URL']
+client = AsyncIOMotorClient(mongo_url)
+db = client[os.environ['DB_NAME']]
 
 # Security
 SECRET_KEY = "your-secret-key-change-in-production"
@@ -186,663 +42,1076 @@ api_router = APIRouter(prefix="/api")
 # Função para buscar empresas cadastradas
 async def get_empresas_config():
     """Retorna configuração de empresas do banco de dados"""
-    async with async_session() as session:
-        result = await session.execute(select(Empresa).where(Empresa.ativo == True))
-        empresas = result.scalars().all()
-        config = {}
-        for empresa in empresas:
-            config[empresa.cnpj] = {
-                "nome": empresa.nome_fantasia or empresa.razao_social, 
-                "uf": empresa.uf
-            }
-        return config
+    empresas = await db.empresas.find({"ativo": True}).to_list(100)
+    config = {}
+    for empresa in empresas:
+        config[empresa["cnpj"]] = {
+            "nome": empresa["nome_fantasia"] or empresa["razao_social"], 
+            "uf": empresa["uf"]
+        }
+    return config
 
-# Dependency para sessão do banco
-async def get_db():
-    async with async_session() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+# ============= MODELS =============
 
-# Pydantic Models
-class UserCreate(BaseModel):
-    email: str
+class LoginRequest(BaseModel):
+    username: str
     password: str
 
-class UserLogin(BaseModel):
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: dict
+
+# Cliente Models
+class Cliente(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    nome: str
     email: str
-    password: str
-
-class EmpresaCreate(BaseModel):
-    cnpj: str
-    razao_social: str
-    nome_fantasia: Optional[str] = None
-    endereco: Optional[str] = None
-    cidade: Optional[str] = None
-    uf: str
-    cep: Optional[str] = None
-    telefone: Optional[str] = None
-    email: Optional[str] = None
-
-class EmpresaResponse(BaseModel):
-    id: str
-    cnpj: str
-    razao_social: str
-    nome_fantasia: Optional[str]
-    endereco: Optional[str]
-    cidade: Optional[str]
-    uf: str
-    cep: Optional[str]
-    telefone: Optional[str]
-    email: Optional[str]
-    ativo: bool
-    created_at: datetime
+    telefone: str
+    endereco: str
+    cidade: str = ""
+    uf: str = ""
+    cep: str = ""
+    cpf_cnpj: str = ""
+    observacoes: str = ""
+    ativo: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 class ClienteCreate(BaseModel):
     nome: str
-    email: Optional[str] = None
-    telefone: Optional[str] = None
-    cpf_cnpj: Optional[str] = None
-    endereco: Optional[str] = None
-    cidade: Optional[str] = None
-    uf: Optional[str] = None
-    cep: Optional[str] = None
-    observacoes: Optional[str] = None
+    email: str
+    telefone: str
+    endereco: str
+    cidade: str = ""
+    uf: str = ""
+    cep: str = ""
+    cpf_cnpj: str = ""
+    observacoes: str = ""
+    ativo: bool = True
 
-class ClienteResponse(BaseModel):
-    id: str
+# Fornecedor Models
+class Fornecedor(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     nome: str
-    email: Optional[str]
-    telefone: Optional[str]
-    cpf_cnpj: Optional[str]
-    endereco: Optional[str]
-    cidade: Optional[str]
-    uf: Optional[str]
-    cep: Optional[str]
-    ativo: bool
-    observacoes: Optional[str]
-    created_at: datetime
+    cnpj: str
+    email: str = ""
+    telefone: str = ""
+    endereco: str = ""
+    cidade: str = ""
+    uf: str = ""
+    cep: str = ""
+    contato: str = ""
+    condicoes_pagamento: str = ""
+    observacoes: str = ""
+    ativo: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 class FornecedorCreate(BaseModel):
     nome: str
-    cnpj: Optional[str] = None
-    email: Optional[str] = None
-    telefone: Optional[str] = None
-    endereco: Optional[str] = None
-    cidade: Optional[str] = None
-    uf: Optional[str] = None
-    cep: Optional[str] = None
-    contato: Optional[str] = None
-    prazo_pagamento: Optional[int] = 30
+    cnpj: str
+    email: str = ""
+    telefone: str = ""
+    endereco: str = ""
+    cidade: str = ""
+    uf: str = ""
+    cep: str = ""
+    contato: str = ""
+    condicoes_pagamento: str = ""
+    observacoes: str = ""
+    ativo: bool = True
 
-class FornecedorResponse(BaseModel):
-    id: str
+# Produto Models
+class EstoqueCNPJ(BaseModel):
+    cnpj: str
+    quantidade: int
+    estoque_minimo: int = 0
+    estoque_maximo: int = 0
+
+class Produto(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    sku: str
+    ean: str = ""
     nome: str
-    cnpj: Optional[str]
-    email: Optional[str]
-    telefone: Optional[str]
-    endereco: Optional[str]
-    cidade: Optional[str]
-    uf: Optional[str]
-    cep: Optional[str]
-    contato: Optional[str]
-    prazo_pagamento: Optional[int]
-    ativo: bool
-    created_at: datetime
+    descricao: str = ""
+    categoria: str = ""
+    marca: str = ""
+    unidade: str = "UN"
+    valor_compra: float = 0.0
+    custo_medio: float = 0.0
+    preco_venda: float = 0.0
+    margem_percentual: float = 0.0
+    estoque_total: int = 0
+    estoques_cnpj: List[EstoqueCNPJ] = []
+    fornecedor_id: str = ""
+    imagem_url: str = ""
+    ativo: bool = True
+    fora_estado: bool = False  # Para regra ICMS
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 class ProdutoCreate(BaseModel):
+    sku: str
+    ean: str = ""
     nome: str
-    codigo: Optional[str] = None
-    codigo_barras: Optional[str] = None
-    categoria: Optional[str] = None
-    descricao: Optional[str] = None
+    descricao: str = ""
+    categoria: str = ""
+    marca: str = ""
+    unidade: str = "UN"
+    valor_compra: float = 0.0
     preco_venda: float = 0.0
-    valor_pago: float = 0.0
-    unidade_medida: str = "UN"
-    peso: Optional[float] = None
-    imagem: Optional[str] = None
+    fornecedor_id: str = ""
+    fora_estado: bool = False
 
-class ProdutoResponse(BaseModel):
-    id: str
-    nome: str
-    codigo: Optional[str]
-    codigo_barras: Optional[str]
-    categoria: Optional[str]
-    descricao: Optional[str]
-    preco_venda: float
-    valor_pago: float
-    custo_medio: float
-    unidade_medida: str
-    peso: Optional[float]
-    imagem: Optional[str]
-    ativo: bool
-    created_at: datetime
-
-class EstoqueResponse(BaseModel):
+# Movimentação Estoque
+class MovimentacaoEstoque(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     produto_id: str
-    cnpj_empresa: str
-    quantidade: float
-    quantidade_reservada: float
-    estoque_minimo: float
-    localizacao: Optional[str]
+    cnpj: str
+    tipo: str  # COMPRA, VENDA, AJUSTE, TRANSFERENCIA, DEVOLUCAO
+    documento: str = ""
+    descricao: str
+    quantidade_entrada: int = 0
+    quantidade_saida: int = 0
+    valor_unitario: float = 0.0
+    valor_total: float = 0.0
+    usuario: str = ""
+    data: datetime = Field(default_factory=datetime.utcnow)
+
+# Financeiro Models  
+class ContaBanco(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    nome: str
+    tipo: str  # BANCO, CAIXA, POUPANCA, CARTAO
+    banco: str = ""
+    agencia: str = ""
+    conta: str = ""
+    saldo_atual: float = 0.0
+    ativo: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class ContaBancoCreate(BaseModel):
     nome: str
-    banco: str
-    agencia: Optional[str] = None
-    conta: Optional[str] = None
     tipo: str
-    saldo_inicial: float = 0.0
+    banco: str = ""
+    agencia: str = ""
+    conta: str = ""
+    saldo_atual: float = 0.0
 
-class ContaBancoResponse(BaseModel):
-    id: str
-    nome: str
-    banco: str
-    agencia: Optional[str]
-    conta: Optional[str]
-    tipo: str
-    saldo_inicial: float
-    saldo_atual: float
-    ativo: bool
-    created_at: datetime
-
-class ContaRecebePageCreate(BaseModel):
-    tipo: str  # receber, pagar
+class ContaFinanceira(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    tipo: str  # PAGAR, RECEBER
     descricao: str
     valor: float
+    valor_pago: float = 0.0
     data_vencimento: date
-    categoria: Optional[str] = None
-    cliente_fornecedor_id: Optional[str] = None
-    conta_banco_id: Optional[str] = None
-    observacoes: Optional[str] = None
-    documento: Optional[str] = None
+    data_pagamento: Optional[date] = None
+    status: str = "PENDENTE"  # PENDENTE, PAGO, VENCIDO
+    categoria: str = ""
+    observacoes: str = ""
+    conta_banco_id: str = ""
+    fornecedor_id: str = ""
+    cliente_id: str = ""
+    documento: str = ""
+    cnpj: str = ""
+    parcela: int = 1
+    total_parcelas: int = 1
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
-class ContaRecebePageResponse(BaseModel):
-    id: str
+class ContaFinanceiraCreate(BaseModel):
     tipo: str
     descricao: str
     valor: float
     data_vencimento: date
-    data_pagamento: Optional[date]
-    valor_pago: Optional[float]
-    status: str
-    categoria: Optional[str]
-    cliente_fornecedor_id: Optional[str]
-    conta_banco_id: Optional[str]
-    observacoes: Optional[str]
-    documento: Optional[str]
-    created_at: datetime
+    categoria: str = ""
+    observacoes: str = ""
+    fornecedor_id: str = ""
+    cliente_id: str = ""
+    documento: str = ""
+    cnpj: str = ""
+    parcelas: int = 1
 
-# Authentication functions
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+# XML Processing
+class XMLProcessamento(BaseModel):
+    arquivo_nome: str
+    fornecedor_cnpj: str = ""
+    fornecedor_nome: str = ""
+    numero_nf: str = ""
+    valor_total: float = 0.0
+    valor_produtos: float = 0.0
+    valor_icms: float = 0.0
+    itens: List[Dict] = []
+    status: str = "PENDENTE"  # PENDENTE, PROCESSADO, ERRO
+    cnpj_destino: str = ""
+    data_processamento: datetime = Field(default_factory=datetime.utcnow)
 
-def get_password_hash(password):
-    return pwd_context.hash(password)
+# ============= HELPER FUNCTIONS =============
+
+async def calcular_custo_medio(produto_id: str, novo_custo: float, quantidade: int):
+    """Calcula custo médio baseado no histórico de compras"""
+    produto = await db.produtos.find_one({"id": produto_id})
+    if not produto:
+        return novo_custo
+    
+    estoque_atual = produto.get("estoque_total", 0)
+    custo_atual = produto.get("custo_medio", 0.0)
+    
+    if estoque_atual == 0:
+        return novo_custo
+    
+    valor_estoque_atual = estoque_atual * custo_atual
+    valor_nova_compra = quantidade * novo_custo
+    total_quantidade = estoque_atual + quantidade
+    
+    if total_quantidade == 0:
+        return novo_custo
+    
+    custo_medio = (valor_estoque_atual + valor_nova_compra) / total_quantidade
+    return round(custo_medio, 4)
+
+async def atualizar_estoque_produto(produto_id: str, cnpj: str, quantidade: int, operacao: str = "ENTRADA"):
+    """Atualiza estoque do produto por CNPJ"""
+    produto = await db.produtos.find_one({"id": produto_id})
+    if not produto:
+        return False
+    
+    estoques_cnpj = produto.get("estoques_cnpj", [])
+    estoque_encontrado = False
+    
+    for estoque in estoques_cnpj:
+        if estoque["cnpj"] == cnpj:
+            if operacao == "ENTRADA":
+                estoque["quantidade"] += quantidade
+            else:  # SAIDA
+                estoque["quantidade"] -= quantidade
+            estoque_encontrado = True
+            break
+    
+    if not estoque_encontrado:
+        novo_estoque = {
+            "cnpj": cnpj,
+            "quantidade": quantidade if operacao == "ENTRADA" else -quantidade,
+            "estoque_minimo": 0,
+            "estoque_maximo": 0
+        }
+        estoques_cnpj.append(novo_estoque)
+    
+    # Recalcular estoque total
+    estoque_total = sum(e["quantidade"] for e in estoques_cnpj)
+    
+    await db.produtos.update_one(
+        {"id": produto_id},
+        {
+            "$set": {
+                "estoques_cnpj": estoques_cnpj,
+                "estoque_total": estoque_total,
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    return True
+
+async def criar_movimentacao_estoque(produto_id: str, cnpj: str, tipo: str, quantidade_entrada: int, quantidade_saida: int, documento: str, descricao: str, valor_unitario: float, usuario: str = "sistema"):
+    """Cria registro de movimentação de estoque"""
+    movimentacao = MovimentacaoEstoque(
+        produto_id=produto_id,
+        cnpj=cnpj,
+        tipo=tipo,
+        documento=documento,
+        descricao=descricao,
+        quantidade_entrada=quantidade_entrada,
+        quantidade_saida=quantidade_saida,
+        valor_unitario=valor_unitario,
+        valor_total=(quantidade_entrada + quantidade_saida) * valor_unitario,
+        usuario=usuario
+    )
+    
+    await db.movimentacoes_estoque.insert_one(movimentacao.dict())
+    return movimentacao
+
+# ============= AUTH FUNCTIONS =============
 
 def create_access_token(data: dict):
     to_encode = data.copy()
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: AsyncSession = Depends(get_db)):
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     try:
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None:
-            raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+        username: str = payload.get("sub")
+        if username is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return username
     except jwt.PyJWTError:
-        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
-    
-    result = await db.execute(select(User).where(User.email == email))
-    user = result.scalar_one_or_none()
-    if user is None:
-        raise HTTPException(status_code=401, detail="User not found")
-    return user
+        raise HTTPException(status_code=401, detail="Invalid token")
 
-# Create tables
-async def create_tables():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+# ============= AUTH ROUTES =============
 
-@app.on_event("startup")
-async def startup():
-    await create_tables()
+@api_router.post("/auth/login", response_model=LoginResponse)
+async def login(request: LoginRequest):
+    if request.username == "admin" and request.password == "admin123":
+        access_token = create_access_token(data={"sub": request.username})
+        return LoginResponse(
+            access_token=access_token,
+            user={"username": "admin", "role": "administrator"}
+        )
+    else:
+        raise HTTPException(status_code=401, detail="Credenciais inválidas")
+
+@api_router.get("/auth/me")
+async def get_me(current_user: str = Depends(get_current_user)):
+    return {"username": current_user, "role": "administrator"}
+
+# ============= CLIENTE ROUTES =============
+
+@api_router.post("/clientes", response_model=Cliente)
+async def create_cliente(cliente: ClienteCreate, current_user: str = Depends(get_current_user)):
+    cliente_dict = cliente.dict()
+    cliente_obj = Cliente(**cliente_dict)
+    await db.clientes.insert_one(cliente_obj.dict())
+    return cliente_obj
+
+@api_router.get("/clientes", response_model=List[Cliente])
+async def get_clientes(current_user: str = Depends(get_current_user)):
+    clientes = await db.clientes.find().to_list(1000)
+    return [Cliente(**cliente) for cliente in clientes]
+
+@api_router.get("/clientes/{cliente_id}", response_model=Cliente)
+async def get_cliente(cliente_id: str, current_user: str = Depends(get_current_user)):
+    cliente = await db.clientes.find_one({"id": cliente_id})
+    if cliente:
+        return Cliente(**cliente)
+    raise HTTPException(status_code=404, detail="Cliente não encontrado")
+
+@api_router.put("/clientes/{cliente_id}", response_model=Cliente)
+async def update_cliente(cliente_id: str, cliente: ClienteCreate, current_user: str = Depends(get_current_user)):
+    update_data = cliente.dict()
+    update_data["updated_at"] = datetime.utcnow()
     
-    # Create default user if not exists
-    async with async_session() as session:
-        result = await session.execute(select(User).where(User.email == "admin"))
-        user = result.scalar_one_or_none()
-        if not user:
-            hashed_password = get_password_hash("admin123")
-            new_user = User(
-                email="admin",
-                hashed_password=hashed_password,
-                is_active=True
+    await db.clientes.update_one({"id": cliente_id}, {"$set": update_data})
+    updated_cliente = await db.clientes.find_one({"id": cliente_id})
+    if updated_cliente:
+        return Cliente(**updated_cliente)
+    raise HTTPException(status_code=404, detail="Cliente não encontrado")
+
+@api_router.delete("/clientes/{cliente_id}")
+async def delete_cliente(cliente_id: str, current_user: str = Depends(get_current_user)):
+    result = await db.clientes.delete_one({"id": cliente_id})
+    if result.deleted_count:
+        return {"message": "Cliente deletado com sucesso"}
+    raise HTTPException(status_code=404, detail="Cliente não encontrado")
+
+# ============= FORNECEDOR ROUTES =============
+
+@api_router.post("/fornecedores", response_model=Fornecedor)
+async def create_fornecedor(fornecedor: FornecedorCreate, current_user: str = Depends(get_current_user)):
+    fornecedor_dict = fornecedor.dict()
+    fornecedor_obj = Fornecedor(**fornecedor_dict)
+    await db.fornecedores.insert_one(fornecedor_obj.dict())
+    return fornecedor_obj
+
+@api_router.get("/fornecedores", response_model=List[Fornecedor])
+async def get_fornecedores(current_user: str = Depends(get_current_user)):
+    fornecedores = await db.fornecedores.find().to_list(1000)
+    return [Fornecedor(**fornecedor) for fornecedor in fornecedores]
+
+@api_router.get("/fornecedores/{fornecedor_id}", response_model=Fornecedor)
+async def get_fornecedor(fornecedor_id: str, current_user: str = Depends(get_current_user)):
+    fornecedor = await db.fornecedores.find_one({"id": fornecedor_id})
+    if fornecedor:
+        return Fornecedor(**fornecedor)
+    raise HTTPException(status_code=404, detail="Fornecedor não encontrado")
+
+@api_router.put("/fornecedores/{fornecedor_id}", response_model=Fornecedor)
+async def update_fornecedor(fornecedor_id: str, fornecedor: FornecedorCreate, current_user: str = Depends(get_current_user)):
+    update_data = fornecedor.dict()
+    update_data["updated_at"] = datetime.utcnow()
+    
+    await db.fornecedores.update_one({"id": fornecedor_id}, {"$set": update_data})
+    updated_fornecedor = await db.fornecedores.find_one({"id": fornecedor_id})
+    if updated_fornecedor:
+        return Fornecedor(**updated_fornecedor)
+    raise HTTPException(status_code=404, detail="Fornecedor não encontrado")
+
+@api_router.delete("/fornecedores/{fornecedor_id}")
+async def delete_fornecedor(fornecedor_id: str, current_user: str = Depends(get_current_user)):
+    result = await db.fornecedores.delete_one({"id": fornecedor_id})
+    if result.deleted_count:
+        return {"message": "Fornecedor deletado com sucesso"}
+    raise HTTPException(status_code=404, detail="Fornecedor não encontrado")
+
+# ============= PRODUTO ROUTES =============
+
+@api_router.post("/produtos", response_model=Produto)
+async def create_produto(produto: ProdutoCreate, current_user: str = Depends(get_current_user)):
+    produto_dict = produto.dict()
+    
+    # Inicializar estoques por CNPJ
+    estoques_cnpj = []
+    for cnpj in CNPJS_CONFIG.keys():
+        estoques_cnpj.append({
+            "cnpj": cnpj,
+            "quantidade": 0,
+            "estoque_minimo": 0,
+            "estoque_maximo": 0
+        })
+    
+    produto_dict["estoques_cnpj"] = estoques_cnpj
+    produto_dict["custo_medio"] = produto_dict["valor_compra"]
+    produto_dict["estoque_total"] = 0
+    
+    # Calcular margem
+    if produto_dict["valor_compra"] > 0:
+        produto_dict["margem_percentual"] = round(((produto_dict["preco_venda"] - produto_dict["valor_compra"]) / produto_dict["valor_compra"]) * 100, 2)
+    
+    produto_obj = Produto(**produto_dict)
+    await db.produtos.insert_one(produto_obj.dict())
+    return produto_obj
+
+@api_router.get("/produtos")
+async def get_produtos(current_user: str = Depends(get_current_user)):
+    produtos = await db.produtos.find().to_list(1000)
+    return produtos
+
+@api_router.get("/produtos/{produto_id}", response_model=Produto)
+async def get_produto(produto_id: str, current_user: str = Depends(get_current_user)):
+    produto = await db.produtos.find_one({"id": produto_id})
+    if produto:
+        return Produto(**produto)
+    raise HTTPException(status_code=404, detail="Produto não encontrado")
+
+@api_router.put("/produtos/{produto_id}", response_model=Produto)
+async def update_produto(produto_id: str, produto_data: dict, current_user: str = Depends(get_current_user)):
+    produto_data["updated_at"] = datetime.utcnow()
+    
+    # Recalcular margem se necessário
+    if "valor_compra" in produto_data and "preco_venda" in produto_data:
+        if produto_data["valor_compra"] > 0:
+            produto_data["margem_percentual"] = round(((produto_data["preco_venda"] - produto_data["valor_compra"]) / produto_data["valor_compra"]) * 100, 2)
+    
+    await db.produtos.update_one({"id": produto_id}, {"$set": produto_data})
+    updated_produto = await db.produtos.find_one({"id": produto_id})
+    if updated_produto:
+        return Produto(**updated_produto)
+    raise HTTPException(status_code=404, detail="Produto não encontrado")
+
+@api_router.delete("/produtos/{produto_id}")
+async def delete_produto(produto_id: str, current_user: str = Depends(get_current_user)):
+    result = await db.produtos.delete_one({"id": produto_id})
+    if result.deleted_count:
+        return {"message": "Produto deletado com sucesso"}
+    raise HTTPException(status_code=404, detail="Produto não encontrado")
+
+# ============= ESTOQUE ROUTES =============
+
+@api_router.get("/produtos/{produto_id}/movimentacoes")
+async def get_movimentacoes_produto(produto_id: str, cnpj: str = None, current_user: str = Depends(get_current_user)):
+    """Busca movimentações de estoque de um produto"""
+    filter_query = {"produto_id": produto_id}
+    if cnpj:
+        filter_query["cnpj"] = cnpj
+    
+    movimentacoes = await db.movimentacoes_estoque.find(filter_query).sort("data", -1).to_list(1000)
+    
+    # Calcular totais
+    total_entradas = sum(m.get("quantidade_entrada", 0) for m in movimentacoes)
+    total_saidas = sum(m.get("quantidade_saida", 0) for m in movimentacoes)
+    
+    return {
+        "movimentacoes": movimentacoes,
+        "resumo": {
+            "total_entradas": total_entradas,
+            "total_saidas": total_saidas,
+            "saldo": total_entradas - total_saidas
+        }
+    }
+
+@api_router.post("/estoque/ajuste")
+async def ajustar_estoque(produto_id: str, cnpj: str, quantidade: int, motivo: str, current_user: str = Depends(get_current_user)):
+    """Ajusta estoque manualmente"""
+    produto = await db.produtos.find_one({"id": produto_id})
+    if not produto:
+        raise HTTPException(status_code=404, detail="Produto não encontrado")
+    
+    # Atualizar estoque
+    if quantidade > 0:
+        await atualizar_estoque_produto(produto_id, cnpj, abs(quantidade), "ENTRADA")
+        await criar_movimentacao_estoque(produto_id, cnpj, "AJUSTE", abs(quantidade), 0, "", f"Ajuste: {motivo}", produto.get("custo_medio", 0), current_user)
+    else:
+        await atualizar_estoque_produto(produto_id, cnpj, abs(quantidade), "SAIDA")
+        await criar_movimentacao_estoque(produto_id, cnpj, "AJUSTE", 0, abs(quantidade), "", f"Ajuste: {motivo}", produto.get("custo_medio", 0), current_user)
+    
+    return {"message": "Estoque ajustado com sucesso"}
+
+# ============= FINANCEIRO ROUTES =============
+
+@api_router.post("/contas-banco", response_model=ContaBanco)
+async def create_conta_banco(conta: ContaBancoCreate, current_user: str = Depends(get_current_user)):
+    conta_dict = conta.dict()
+    conta_obj = ContaBanco(**conta_dict)
+    await db.contas_banco.insert_one(conta_obj.dict())
+    return conta_obj
+
+@api_router.get("/contas-banco", response_model=List[ContaBanco])
+async def get_contas_banco(current_user: str = Depends(get_current_user)):
+    contas = await db.contas_banco.find().to_list(100)
+    return [ContaBanco(**conta) for conta in contas]
+
+@api_router.post("/financeiro", response_model=ContaFinanceira)
+async def create_conta_financeira(conta: ContaFinanceiraCreate, current_user: str = Depends(get_current_user)):
+    conta_dict = conta.dict()
+    
+    # Se tem parcelas, criar múltiplas contas
+    if conta_dict.get("parcelas", 1) > 1:
+        contas_criadas = []
+        valor_parcela = conta_dict["valor"] / conta_dict["parcelas"]
+        
+        for i in range(conta_dict["parcelas"]):
+            conta_parcela = conta_dict.copy()
+            conta_parcela["valor"] = round(valor_parcela, 2)
+            conta_parcela["parcela"] = i + 1
+            conta_parcela["total_parcelas"] = conta_dict["parcelas"]
+            conta_parcela["descricao"] = f"{conta_dict['descricao']} - Parcela {i+1}/{conta_dict['parcelas']}"
+            
+            # Ajustar data de vencimento
+            from dateutil.relativedelta import relativedelta
+            data_base = datetime.strptime(str(conta_dict["data_vencimento"]), "%Y-%m-%d").date()
+            conta_parcela["data_vencimento"] = data_base + relativedelta(months=i)
+            
+            del conta_parcela["parcelas"]
+            conta_obj = ContaFinanceira(**conta_parcela)
+            await db.contas_financeiras.insert_one(conta_obj.dict())
+            contas_criadas.append(conta_obj)
+        
+        return contas_criadas[0]  # Retorna a primeira parcela
+    else:
+        del conta_dict["parcelas"]
+        conta_obj = ContaFinanceira(**conta_dict)
+        await db.contas_financeiras.insert_one(conta_obj.dict())
+        return conta_obj
+
+@api_router.get("/financeiro")
+async def get_contas_financeiras(tipo: str = None, status: str = None, current_user: str = Depends(get_current_user)):
+    filter_query = {}
+    if tipo:
+        filter_query["tipo"] = tipo
+    if status:
+        filter_query["status"] = status
+    
+    contas = await db.contas_financeiras.find(filter_query).sort("data_vencimento", 1).to_list(1000)
+    return contas
+
+@api_router.post("/financeiro/{conta_id}/pagar")
+async def pagar_conta(conta_id: str, conta_banco_id: str, valor_pago: float, data_pagamento: str, current_user: str = Depends(get_current_user)):
+    """Baixa uma conta como paga"""
+    conta = await db.contas_financeiras.find_one({"id": conta_id})
+    if not conta:
+        raise HTTPException(status_code=404, detail="Conta não encontrada")
+    
+    # Atualizar conta
+    update_data = {
+        "valor_pago": valor_pago,
+        "data_pagamento": datetime.strptime(data_pagamento, "%Y-%m-%d").date(),
+        "status": "PAGO",
+        "conta_banco_id": conta_banco_id
+    }
+    
+    await db.contas_financeiras.update_one({"id": conta_id}, {"$set": update_data})
+    
+    # Atualizar saldo da conta bancária
+    conta_banco = await db.contas_banco.find_one({"id": conta_banco_id})
+    if conta_banco:
+        if conta["tipo"] == "PAGAR":
+            novo_saldo = conta_banco["saldo_atual"] - valor_pago
+        else:  # RECEBER
+            novo_saldo = conta_banco["saldo_atual"] + valor_pago
+        
+        await db.contas_banco.update_one({"id": conta_banco_id}, {"$set": {"saldo_atual": novo_saldo}})
+    
+    return {"message": "Conta baixada com sucesso"}
+
+@api_router.get("/financeiro/relatorios")
+async def get_relatorios_financeiros(current_user: str = Depends(get_current_user)):
+    """Relatórios financeiros gerais"""
+    # Contas a pagar
+    total_pagar = await db.contas_financeiras.aggregate([
+        {"$match": {"tipo": "PAGAR", "status": "PENDENTE"}},
+        {"$group": {"_id": None, "total": {"$sum": "$valor"}}}
+    ]).to_list(1)
+    
+    # Contas a receber
+    total_receber = await db.contas_financeiras.aggregate([
+        {"$match": {"tipo": "RECEBER", "status": "PENDENTE"}},
+        {"$group": {"_id": None, "total": {"$sum": "$valor"}}}
+    ]).to_list(1)
+    
+    # Saldo total das contas bancárias
+    saldo_bancos = await db.contas_banco.aggregate([
+        {"$match": {"ativo": True}},
+        {"$group": {"_id": None, "total": {"$sum": "$saldo_atual"}}}
+    ]).to_list(1)
+    
+    pagar = total_pagar[0]["total"] if total_pagar else 0
+    receber = total_receber[0]["total"] if total_receber else 0
+    saldo = saldo_bancos[0]["total"] if saldo_bancos else 0
+    
+    return {
+        "contas_pagar": pagar,
+        "contas_receber": receber,
+        "saldo_bancos": saldo,
+        "patrimonio_liquido": saldo + receber - pagar
+    }
+
+# ============= XML PROCESSING ROUTES =============
+
+@api_router.post("/xml/upload")
+async def upload_xml(file: UploadFile = File(...), cnpj_destino: str = Form(...), current_user: str = Depends(get_current_user)):
+    """Upload e processamento de XML de compra"""
+    if not file.filename.endswith('.xml'):
+        raise HTTPException(status_code=400, detail="Arquivo deve ser XML")
+    
+    # Ler conteúdo do arquivo
+    content = await file.read()
+    
+    try:
+        # Parse do XML
+        root = ET.fromstring(content)
+        
+        # Extrair dados básicos da NF
+        ns = {'nfe': 'http://www.portalfiscal.inf.br/nfe'}  # Namespace padrão NFe
+        
+        # Dados do emitente (fornecedor)
+        emit = root.find('.//nfe:emit', ns) or root.find('.//emit')
+        fornecedor_cnpj = emit.find('.//CNPJ').text if emit is not None and emit.find('.//CNPJ') is not None else ""
+        fornecedor_nome = emit.find('.//xNome').text if emit is not None and emit.find('.//xNome') is not None else ""
+        
+        # Dados da NF
+        ide = root.find('.//nfe:ide', ns) or root.find('.//ide')
+        numero_nf = ide.find('.//nNF').text if ide is not None and ide.find('.//nNF') is not None else ""
+        
+        # Totais
+        total = root.find('.//nfe:total//nfe:ICMSTot', ns) or root.find('.//total//ICMSTot')
+        valor_total = float(total.find('.//vNF').text) if total is not None and total.find('.//vNF') is not None else 0.0
+        valor_produtos = float(total.find('.//vProd').text) if total is not None and total.find('.//vProd') is not None else 0.0
+        valor_icms = float(total.find('.//vICMS').text) if total is not None and total.find('.//vICMS') is not None else 0.0
+        
+        # Itens da NF
+        itens = []
+        for det in root.findall('.//nfe:det', ns) or root.findall('.//det'):
+            prod = det.find('.//nfe:prod', ns) or det.find('.//prod')
+            if prod is not None:
+                item = {
+                    "codigo": prod.find('.//cProd').text if prod.find('.//cProd') is not None else "",
+                    "descricao": prod.find('.//xProd').text if prod.find('.//xProd') is not None else "",
+                    "ean": prod.find('.//cEAN').text if prod.find('.//cEAN') is not None else "",
+                    "quantidade": float(prod.find('.//qCom').text) if prod.find('.//qCom') is not None else 0.0,
+                    "valor_unitario": float(prod.find('.//vUnCom').text) if prod.find('.//vUnCom') is not None else 0.0,
+                    "valor_total": float(prod.find('.//vProd').text) if prod.find('.//vProd') is not None else 0.0
+                }
+                itens.append(item)
+        
+        # Criar registro de processamento
+        xml_proc = XMLProcessamento(
+            arquivo_nome=file.filename,
+            fornecedor_cnpj=fornecedor_cnpj,
+            fornecedor_nome=fornecedor_nome,
+            numero_nf=numero_nf,
+            valor_total=valor_total,
+            valor_produtos=valor_produtos,
+            valor_icms=valor_icms,
+            itens=itens,
+            cnpj_destino=cnpj_destino
+        )
+        
+        await db.xml_processamentos.insert_one(xml_proc.dict())
+        
+        return {
+            "message": "XML processado com sucesso",
+            "dados": xml_proc.dict()
+        }
+        
+    except ET.ParseError:
+        raise HTTPException(status_code=400, detail="Arquivo XML inválido")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao processar XML: {str(e)}")
+
+@api_router.post("/xml/{xml_id}/processar")
+async def processar_xml_compra(xml_id: str, current_user: str = Depends(get_current_user)):
+    """Processa XML confirmando entrada no estoque e financeiro"""
+    xml_proc = await db.xml_processamentos.find_one({"_id": xml_id})  # Usar _id do MongoDB
+    if not xml_proc:
+        raise HTTPException(status_code=404, detail="XML não encontrado")
+    
+    if xml_proc["status"] == "PROCESSADO":
+        raise HTTPException(status_code=400, detail="XML já foi processado")
+    
+    try:
+        # Buscar ou criar fornecedor
+        fornecedor = await db.fornecedores.find_one({"cnpj": xml_proc["fornecedor_cnpj"]})
+        if not fornecedor:
+            # Criar fornecedor automaticamente
+            novo_fornecedor = Fornecedor(
+                nome=xml_proc["fornecedor_nome"],
+                cnpj=xml_proc["fornecedor_cnpj"]
             )
-            session.add(new_user)
-            await session.commit()
-            print("Default admin user created")
+            await db.fornecedores.insert_one(novo_fornecedor.dict())
+            fornecedor_id = novo_fornecedor.id
+        else:
+            fornecedor_id = fornecedor["id"]
+        
+        # Processar cada item
+        for item in xml_proc["itens"]:
+            # Buscar produto pelo código/EAN
+            produto = await db.produtos.find_one({
+                "$or": [
+                    {"sku": item["codigo"]},
+                    {"ean": item["ean"]}
+                ]
+            })
+            
+            if produto:
+                produto_id = produto["id"]
+                valor_compra = item["valor_unitario"]
+                
+                # Aplicar regra ICMS diferencial se produto de fora do estado
+                if produto.get("fora_estado", False):
+                    valor_compra *= 1.06  # Adiciona 6%
+                
+                # Calcular novo custo médio
+                novo_custo_medio = await calcular_custo_medio(produto_id, valor_compra, int(item["quantidade"]))
+                
+                # Atualizar produto
+                await db.produtos.update_one(
+                    {"id": produto_id},
+                    {
+                        "$set": {
+                            "valor_compra": valor_compra,
+                            "custo_medio": novo_custo_medio,
+                            "updated_at": datetime.utcnow()
+                        }
+                    }
+                )
+                
+                # Atualizar estoque
+                await atualizar_estoque_produto(produto_id, xml_proc["cnpj_destino"], int(item["quantidade"]), "ENTRADA")
+                
+                # Criar movimentação de estoque
+                await criar_movimentacao_estoque(
+                    produto_id=produto_id,
+                    cnpj=xml_proc["cnpj_destino"],
+                    tipo="COMPRA",
+                    quantidade_entrada=int(item["quantidade"]),
+                    quantidade_saida=0,
+                    documento=f"NF {xml_proc['numero_nf']}",
+                    descricao=f"Compra - {item['descricao']}",
+                    valor_unitario=valor_compra,
+                    usuario=current_user
+                )
+        
+        # Criar conta a pagar
+        conta_pagar = ContaFinanceira(
+            tipo="PAGAR",
+            descricao=f"NF {xml_proc['numero_nf']} - {xml_proc['fornecedor_nome']}",
+            valor=xml_proc["valor_total"],
+            data_vencimento=date.today(),  # Configurar conforme necessário
+            categoria="COMPRAS",
+            fornecedor_id=fornecedor_id,
+            documento=xml_proc["numero_nf"],
+            cnpj=xml_proc["cnpj_destino"]
+        )
+        
+        await db.contas_financeiras.insert_one(conta_pagar.dict())
+        
+        # Marcar XML como processado
+        await db.xml_processamentos.update_one(
+            {"_id": xml_id},
+            {"$set": {"status": "PROCESSADO"}}
+        )
+        
+        return {"message": "XML processado e integrado com sucesso"}
+        
+    except Exception as e:
+        await db.xml_processamentos.update_one(
+            {"_id": xml_id},
+            {"$set": {"status": "ERRO"}}
+        )
+        raise HTTPException(status_code=500, detail=f"Erro ao processar: {str(e)}")
 
-# CORS
+# ============= MARKETPLACE/UPSELLER - EXPORTAÇÃO DE DADOS =============
+
+@api_router.get("/marketplace/exportar-estoque")
+async def exportar_estoque_marketplace(formato: str = "json"):
+    """Exporta estoque consolidado para marketplaces (CSV, JSON, XML)"""
+    produtos = await db.produtos.find({"ativo": True}).to_list(1000)
+    
+    dados_exportacao = []
+    for produto in produtos:
+        dados_exportacao.append({
+            "sku": produto["sku"],
+            "nome": produto["nome"],
+            "descricao": produto.get("descricao", ""),
+            "marca": produto.get("marca", ""),
+            "categoria": produto.get("categoria", ""),
+            "ean": produto.get("ean", ""),
+            "estoque_disponivel": produto["estoque_total"],
+            "custo_medio": round(produto["custo_medio"], 2),
+            "preco_venda": round(produto["preco_venda"], 2),
+            "margem_percentual": round(produto.get("margem_percentual", 0), 2),
+            "ativo": produto["ativo"],
+            "atualizado_em": produto["updated_at"].isoformat()
+        })
+    
+    if formato == "csv":
+        import csv
+        import io
+        
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=dados_exportacao[0].keys() if dados_exportacao else [])
+        writer.writeheader()
+        writer.writerows(dados_exportacao)
+        
+        return {
+            "formato": "csv",
+            "dados": output.getvalue(),
+            "total_produtos": len(dados_exportacao)
+        }
+    
+    return {
+        "formato": "json", 
+        "produtos": dados_exportacao,
+        "total_produtos": len(dados_exportacao),
+        "exportado_em": datetime.utcnow().isoformat()
+    }
+
+@api_router.post("/marketplace/processar-venda")
+async def processar_venda_marketplace(venda_data: dict):
+    """Processa vendas vindas de marketplaces (entrada manual de dados)"""
+    try:
+        # Extrair dados da venda
+        cnpj_vendedor = venda_data.get("cnpj_vendedor")
+        marketplace = venda_data.get("marketplace", "UPSELLER")
+        produtos_vendidos = venda_data.get("produtos", [])
+        valor_bruto = venda_data.get("valor_bruto", 0)
+        valor_liquido = venda_data.get("valor_liquido", 0)
+        taxas = venda_data.get("taxas", 0)
+        pedido_id = venda_data.get("pedido_id", "")
+        data_venda = venda_data.get("data_venda", date.today().isoformat())
+        
+        if not cnpj_vendedor or not produtos_vendidos:
+            raise HTTPException(status_code=400, detail="CNPJ vendedor e produtos são obrigatórios")
+        
+        lucro_total = 0
+        produtos_processados = 0
+        
+        # Processar cada produto vendido
+        for item in produtos_vendidos:
+            sku = item.get("sku")
+            quantidade = item.get("quantidade", 0)
+            preco_unitario = item.get("preco_unitario", 0)
+            
+            if not sku or quantidade <= 0:
+                continue
+            
+            # Buscar produto
+            produto = await db.produtos.find_one({"sku": sku})
+            if produto:
+                produto_id = produto["id"]
+                custo_medio = produto["custo_medio"]
+                
+                # Verificar se há estoque suficiente no CNPJ
+                estoque_cnpj = next((e for e in produto.get("estoques_cnpj", []) if e["cnpj"] == cnpj_vendedor), None)
+                if not estoque_cnpj or estoque_cnpj["quantidade"] < quantidade:
+                    raise HTTPException(
+                        status_code=400, 
+                        detail=f"Estoque insuficiente para produto {sku} no CNPJ {cnpj_vendedor}"
+                    )
+                
+                # Calcular lucro do item
+                lucro_item = (preco_unitario - custo_medio) * quantidade
+                lucro_total += lucro_item
+                
+                # Baixar estoque (do CNPJ que vendeu)
+                await atualizar_estoque_produto(produto_id, cnpj_vendedor, quantidade, "SAIDA")
+                
+                # Criar movimentação de estoque
+                await criar_movimentacao_estoque(
+                    produto_id=produto_id,
+                    cnpj=cnpj_vendedor,
+                    tipo="VENDA",
+                    quantidade_entrada=0,
+                    quantidade_saida=quantidade,
+                    documento=pedido_id,
+                    descricao=f"Venda {marketplace} - {produto['nome']}",
+                    valor_unitario=preco_unitario,
+                    usuario="marketplace"
+                )
+                
+                produtos_processados += 1
+        
+        # Criar conta a receber (valor líquido)
+        if valor_liquido > 0:
+            conta_receber = ContaFinanceira(
+                tipo="RECEBER",
+                descricao=f"Venda {marketplace} - Pedido {pedido_id}",
+                valor=valor_liquido,
+                data_vencimento=datetime.strptime(data_venda, "%Y-%m-%d").date(),
+                categoria=f"VENDAS_{marketplace}",
+                documento=pedido_id,
+                cnpj=cnpj_vendedor
+            )
+            
+            await db.contas_financeiras.insert_one(conta_receber.dict())
+        
+        # Registrar taxas como despesa se houver
+        if taxas > 0:
+            taxa_despesa = ContaFinanceira(
+                tipo="PAGAR",
+                descricao=f"Taxas {marketplace} - Pedido {pedido_id}",
+                valor=taxas,
+                data_vencimento=datetime.strptime(data_venda, "%Y-%m-%d").date(),
+                categoria=f"TAXAS_{marketplace}",
+                documento=pedido_id,
+                cnpj=cnpj_vendedor,
+                status="PAGO"  # Taxas já são descontadas
+            )
+            
+            await db.contas_financeiras.insert_one(taxa_despesa.dict())
+        
+        return {
+            "message": "Venda processada com sucesso",
+            "marketplace": marketplace,
+            "pedido_id": pedido_id,
+            "lucro_bruto": round(lucro_total, 2),
+            "valor_liquido": valor_liquido,
+            "produtos_processados": produtos_processados
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao processar venda: {str(e)}")
+
+@api_router.get("/marketplace/relatorio-lucros")
+async def relatorio_lucros_marketplace(marketplace: str = None, periodo_dias: int = 30):
+    """Relatório de lucros por marketplace"""
+    data_inicio = datetime.utcnow() - relativedelta(days=periodo_dias)
+    
+    filter_query = {
+        "tipo": "VENDA",
+        "data": {"$gte": data_inicio}
+    }
+    
+    if marketplace:
+        filter_query["descricao"] = {"$regex": marketplace, "$options": "i"}
+    
+    # Buscar movimentações de venda
+    movimentacoes = await db.movimentacoes_estoque.find(filter_query).to_list(1000)
+    
+    lucro_total = 0
+    vendas_por_marketplace = {}
+    
+    for mov in movimentacoes:
+        # Extrair marketplace da descrição
+        desc = mov.get("descricao", "")
+        if "UPSELLER" in desc:
+            marketplace_nome = "UPSELLER"
+        elif "MERCADO LIVRE" in desc:
+            marketplace_nome = "MERCADO_LIVRE"
+        else:
+            marketplace_nome = "OUTROS"
+        
+        if marketplace_nome not in vendas_por_marketplace:
+            vendas_por_marketplace[marketplace_nome] = {
+                "vendas": 0,
+                "quantidade": 0,
+                "valor_vendido": 0,
+                "lucro_estimado": 0
+            }
+        
+        # Buscar produto para calcular lucro
+        produto = await db.produtos.find_one({"id": mov["produto_id"]})
+        if produto:
+            custo_medio = produto.get("custo_medio", 0)
+            lucro_item = (mov["valor_unitario"] - custo_medio) * mov["quantidade_saida"]
+            
+            vendas_por_marketplace[marketplace_nome]["vendas"] += 1
+            vendas_por_marketplace[marketplace_nome]["quantidade"] += mov["quantidade_saida"]
+            vendas_por_marketplace[marketplace_nome]["valor_vendido"] += mov["valor_total"]
+            vendas_por_marketplace[marketplace_nome]["lucro_estimado"] += lucro_item
+            
+            lucro_total += lucro_item
+    
+    return {
+        "periodo_dias": periodo_dias,
+        "lucro_total": round(lucro_total, 2),
+        "vendas_por_marketplace": vendas_por_marketplace,
+        "gerado_em": datetime.utcnow().isoformat()
+    }
+
+# ============= DASHBOARD ROUTES =============
+
+@api_router.get("/dashboard")
+async def get_dashboard(current_user: str = Depends(get_current_user)):
+    # Contadores gerais
+    total_clientes = await db.clientes.count_documents({})
+    total_fornecedores = await db.fornecedores.count_documents({})
+    total_produtos = await db.produtos.count_documents({})
+    
+    # Valor do estoque (custo médio)
+    pipeline_estoque = [
+        {"$project": {"valor_estoque": {"$multiply": ["$estoque_total", "$custo_medio"]}}},
+        {"$group": {"_id": None, "total": {"$sum": "$valor_estoque"}}}
+    ]
+    valor_estoque = await db.produtos.aggregate(pipeline_estoque).to_list(1)
+    estoque_valor = valor_estoque[0]["total"] if valor_estoque else 0
+    
+    # Financeiro
+    relatorio_financeiro = await get_relatorios_financeiros(current_user)
+    
+    # Vendas do mês
+    today = date.today()
+    start_month = datetime(today.year, today.month, 1)
+    
+    vendas_mes = await db.movimentacoes_estoque.aggregate([
+        {"$match": {"tipo": "VENDA", "data": {"$gte": start_month}}},
+        {"$group": {"_id": None, "total_vendas": {"$sum": "$quantidade_saida"}, "valor_vendas": {"$sum": "$valor_total"}}}
+    ]).to_list(1)
+    
+    vendas_mes_data = vendas_mes[0] if vendas_mes else {"total_vendas": 0, "valor_vendas": 0}
+    
+    return {
+        "total_clientes": total_clientes,
+        "total_fornecedores": total_fornecedores,
+        "total_produtos": total_produtos,
+        "valor_estoque": round(estoque_valor, 2),
+        "vendas_mes": vendas_mes_data["total_vendas"],
+        "valor_vendas_mes": round(vendas_mes_data["valor_vendas"], 2),
+        "financeiro": relatorio_financeiro
+    }
+
+# Basic routes
+@api_router.get("/")
+async def root():
+    return {"message": "ERP System API - Fase 1", "version": "1.0.0", "features": ["Clientes", "Fornecedores", "Produtos", "Estoque Multi-CNPJ", "Financeiro", "XML Processing", "Upseller Integration"]}
+
+# Include the router in the main app
+app.include_router(api_router)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
     allow_credentials=True,
+    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Authentication Routes
-@api_router.post("/auth/login")
-async def login(user_data: UserLogin, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.email == user_data.email))
-    user = result.scalar_one_or_none()
-    if not user or not verify_password(user_data.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-    access_token = create_access_token(data={"sub": user.email})
-    return {"access_token": access_token, "token_type": "bearer"}
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
-@api_router.get("/auth/me")
-async def get_me(current_user: User = Depends(get_current_user)):
-    return {"email": current_user.email, "id": current_user.id}
-
-# Empresas Routes
-@api_router.post("/empresas", response_model=EmpresaResponse)
-async def criar_empresa(empresa: EmpresaCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    new_empresa = Empresa(**empresa.dict())
-    db.add(new_empresa)
-    await db.commit()
-    await db.refresh(new_empresa)
-    return new_empresa
-
-@api_router.get("/empresas", response_model=List[EmpresaResponse])
-async def listar_empresas(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    result = await db.execute(select(Empresa).where(Empresa.ativo == True))
-    return result.scalars().all()
-
-@api_router.get("/empresas/{empresa_id}", response_model=EmpresaResponse)
-async def obter_empresa(empresa_id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    result = await db.execute(select(Empresa).where(Empresa.id == empresa_id))
-    empresa = result.scalar_one_or_none()
-    if not empresa:
-        raise HTTPException(status_code=404, detail="Empresa não encontrada")
-    return empresa
-
-@api_router.put("/empresas/{empresa_id}", response_model=EmpresaResponse)
-async def atualizar_empresa(empresa_id: str, empresa_data: EmpresaCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    result = await db.execute(select(Empresa).where(Empresa.id == empresa_id))
-    empresa = result.scalar_one_or_none()
-    if not empresa:
-        raise HTTPException(status_code=404, detail="Empresa não encontrada")
-    
-    for key, value in empresa_data.dict(exclude_unset=True).items():
-        setattr(empresa, key, value)
-    
-    await db.commit()
-    await db.refresh(empresa)
-    return empresa
-
-@api_router.delete("/empresas/{empresa_id}")
-async def deletar_empresa(empresa_id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    result = await db.execute(select(Empresa).where(Empresa.id == empresa_id))
-    empresa = result.scalar_one_or_none()
-    if not empresa:
-        raise HTTPException(status_code=404, detail="Empresa não encontrada")
-    
-    empresa.ativo = False
-    await db.commit()
-    return {"message": "Empresa desativada com sucesso"}
-
-# Clientes Routes
-@api_router.post("/clientes", response_model=ClienteResponse)
-async def criar_cliente(cliente: ClienteCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    new_cliente = Cliente(**cliente.dict())
-    db.add(new_cliente)
-    await db.commit()
-    await db.refresh(new_cliente)
-    return new_cliente
-
-@api_router.get("/clientes", response_model=List[ClienteResponse])
-async def listar_clientes(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    result = await db.execute(select(Cliente).where(Cliente.ativo == True))
-    return result.scalars().all()
-
-@api_router.get("/clientes/{cliente_id}", response_model=ClienteResponse)
-async def obter_cliente(cliente_id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    result = await db.execute(select(Cliente).where(Cliente.id == cliente_id))
-    cliente = result.scalar_one_or_none()
-    if not cliente:
-        raise HTTPException(status_code=404, detail="Cliente não encontrado")
-    return cliente
-
-@api_router.put("/clientes/{cliente_id}", response_model=ClienteResponse)
-async def atualizar_cliente(cliente_id: str, cliente_data: ClienteCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    result = await db.execute(select(Cliente).where(Cliente.id == cliente_id))
-    cliente = result.scalar_one_or_none()
-    if not cliente:
-        raise HTTPException(status_code=404, detail="Cliente não encontrado")
-    
-    for key, value in cliente_data.dict(exclude_unset=True).items():
-        setattr(cliente, key, value)
-    
-    await db.commit()
-    await db.refresh(cliente)
-    return cliente
-
-@api_router.delete("/clientes/{cliente_id}")
-async def deletar_cliente(cliente_id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    result = await db.execute(select(Cliente).where(Cliente.id == cliente_id))
-    cliente = result.scalar_one_or_none()
-    if not cliente:
-        raise HTTPException(status_code=404, detail="Cliente não encontrado")
-    
-    cliente.ativo = False
-    await db.commit()
-    return {"message": "Cliente desativado com sucesso"}
-
-# Fornecedores Routes
-@api_router.post("/fornecedores", response_model=FornecedorResponse)
-async def criar_fornecedor(fornecedor: FornecedorCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    new_fornecedor = Fornecedor(**fornecedor.dict())
-    db.add(new_fornecedor)
-    await db.commit()
-    await db.refresh(new_fornecedor)
-    return new_fornecedor
-
-@api_router.get("/fornecedores", response_model=List[FornecedorResponse])
-async def listar_fornecedores(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    result = await db.execute(select(Fornecedor).where(Fornecedor.ativo == True))
-    return result.scalars().all()
-
-@api_router.get("/fornecedores/{fornecedor_id}", response_model=FornecedorResponse)
-async def obter_fornecedor(fornecedor_id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    result = await db.execute(select(Fornecedor).where(Fornecedor.id == fornecedor_id))
-    fornecedor = result.scalar_one_or_none()
-    if not fornecedor:
-        raise HTTPException(status_code=404, detail="Fornecedor não encontrado")
-    return fornecedor
-
-@api_router.put("/fornecedores/{fornecedor_id}", response_model=FornecedorResponse)
-async def atualizar_fornecedor(fornecedor_id: str, fornecedor_data: FornecedorCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    result = await db.execute(select(Fornecedor).where(Fornecedor.id == fornecedor_id))
-    fornecedor = result.scalar_one_or_none()
-    if not fornecedor:
-        raise HTTPException(status_code=404, detail="Fornecedor não encontrado")
-    
-    for key, value in fornecedor_data.dict(exclude_unset=True).items():
-        setattr(fornecedor, key, value)
-    
-    await db.commit()
-    await db.refresh(fornecedor)
-    return fornecedor
-
-@api_router.delete("/fornecedores/{fornecedor_id}")
-async def deletar_fornecedor(fornecedor_id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    result = await db.execute(select(Fornecedor).where(Fornecedor.id == fornecedor_id))
-    fornecedor = result.scalar_one_or_none()
-    if not fornecedor:
-        raise HTTPException(status_code=404, detail="Fornecedor não encontrado")
-    
-    fornecedor.ativo = False
-    await db.commit()
-    return {"message": "Fornecedor desativado com sucesso"}
-
-# Produtos Routes
-@api_router.post("/produtos", response_model=ProdutoResponse)
-async def criar_produto(produto: ProdutoCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    new_produto = Produto(**produto.dict())
-    new_produto.custo_medio = produto.valor_pago  # Inicializa custo médio
-    db.add(new_produto)
-    await db.commit()
-    await db.refresh(new_produto)
-    return new_produto
-
-@api_router.get("/produtos", response_model=List[ProdutoResponse])
-async def listar_produtos(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    result = await db.execute(select(Produto).where(Produto.ativo == True))
-    return result.scalars().all()
-
-@api_router.get("/produtos/{produto_id}", response_model=ProdutoResponse)
-async def obter_produto(produto_id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    result = await db.execute(select(Produto).where(Produto.id == produto_id))
-    produto = result.scalar_one_or_none()
-    if not produto:
-        raise HTTPException(status_code=404, detail="Produto não encontrado")
-    return produto
-
-@api_router.put("/produtos/{produto_id}", response_model=ProdutoResponse)
-async def atualizar_produto(produto_id: str, produto_data: ProdutoCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    result = await db.execute(select(Produto).where(Produto.id == produto_id))
-    produto = result.scalar_one_or_none()
-    if not produto:
-        raise HTTPException(status_code=404, detail="Produto não encontrado")
-    
-    for key, value in produto_data.dict(exclude_unset=True).items():
-        setattr(produto, key, value)
-    
-    # Recalcula custo médio se valor_pago mudou
-    if hasattr(produto_data, 'valor_pago') and produto_data.valor_pago:
-        produto.custo_medio = produto_data.valor_pago
-    
-    await db.commit()
-    await db.refresh(produto)
-    return produto
-
-@api_router.delete("/produtos/{produto_id}")
-async def deletar_produto(produto_id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    result = await db.execute(select(Produto).where(Produto.id == produto_id))
-    produto = result.scalar_one_or_none()
-    if not produto:
-        raise HTTPException(status_code=404, detail="Produto não encontrado")
-    
-    produto.ativo = False
-    await db.commit()
-    return {"message": "Produto desativado com sucesso"}
-
-# Estoque Routes
-@api_router.get("/estoque/{produto_id}")
-async def obter_estoque_produto(produto_id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    result = await db.execute(select(Estoque).where(Estoque.produto_id == produto_id))
-    estoques = result.scalars().all()
-    
-    # Busca informações das empresas
-    empresas_config = await get_empresas_config()
-    
-    estoque_por_empresa = []
-    total_quantidade = 0
-    
-    for estoque in estoques:
-        empresa_info = empresas_config.get(estoque.cnpj_empresa, {"nome": "Empresa não encontrada"})
-        estoque_por_empresa.append({
-            "cnpj": estoque.cnpj_empresa,
-            "nome_empresa": empresa_info["nome"],
-            "quantidade": estoque.quantidade,
-            "quantidade_reservada": estoque.quantidade_reservada,
-            "estoque_minimo": estoque.estoque_minimo,
-            "localizacao": estoque.localizacao
-        })
-        total_quantidade += estoque.quantidade
-    
-    return {
-        "produto_id": produto_id,
-        "estoque_por_empresa": estoque_por_empresa,
-        "total_quantidade": total_quantidade
-    }
-
-@api_router.post("/estoque/ajuste")
-async def ajustar_estoque(
-    produto_id: str = Form(...),
-    cnpj_empresa: str = Form(...),
-    quantidade: float = Form(...),
-    tipo: str = Form(...),  # entrada, saida, ajuste
-    observacao: str = Form(None),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    # Busca ou cria registro de estoque
-    result = await db.execute(select(Estoque).where(
-        and_(Estoque.produto_id == produto_id, Estoque.cnpj_empresa == cnpj_empresa)
-    ))
-    estoque = result.scalar_one_or_none()
-    
-    if not estoque:
-        estoque = Estoque(
-            produto_id=produto_id,
-            cnpj_empresa=cnpj_empresa,
-            quantidade=0.0
-        )
-        db.add(estoque)
-    
-    quantidade_anterior = estoque.quantidade
-    
-    # Aplica ajuste
-    if tipo == "entrada" or tipo == "ajuste":
-        estoque.quantidade += quantidade
-    elif tipo == "saida":
-        estoque.quantidade -= quantidade
-    
-    # Registra movimento
-    movimento = EstoqueMovimento(
-        produto_id=produto_id,
-        cnpj_empresa=cnpj_empresa,
-        tipo=tipo,
-        quantidade=quantidade,
-        quantidade_anterior=quantidade_anterior,
-        valor_unitario=0.0,  # TODO: implementar valor
-        observacao=observacao,
-        usuario=current_user.email
-    )
-    db.add(movimento)
-    
-    await db.commit()
-    return {"message": "Estoque ajustado com sucesso"}
-
-# Contas Bancárias Routes
-@api_router.post("/contas-banco", response_model=ContaBancoResponse)
-async def criar_conta_banco(conta: ContaBancoCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    new_conta = ContaBanco(**conta.dict())
-    new_conta.saldo_atual = conta.saldo_inicial
-    db.add(new_conta)
-    await db.commit()
-    await db.refresh(new_conta)
-    return new_conta
-
-@api_router.get("/contas-banco", response_model=List[ContaBancoResponse])
-async def listar_contas_banco(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    result = await db.execute(select(ContaBanco).where(ContaBanco.ativo == True))
-    return result.scalars().all()
-
-# Contas a Receber/Pagar Routes
-@api_router.post("/financeiro/contas", response_model=ContaRecebePageResponse)
-async def criar_conta_recebe_paga(conta: ContaRecebePageCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    new_conta = ContaRecebePaga(**conta.dict())
-    db.add(new_conta)
-    await db.commit()
-    await db.refresh(new_conta)
-    return new_conta
-
-@api_router.get("/financeiro/contas")
-async def listar_contas_recebe_paga(tipo: Optional[str] = None, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    query = select(ContaRecebePaga)
-    if tipo:
-        query = query.where(ContaRecebePaga.tipo == tipo)
-    
-    result = await db.execute(query.order_by(ContaRecebePaga.data_vencimento))
-    contas = result.scalars().all()
-    
-    return [
-        {
-            "id": conta.id,
-            "tipo": conta.tipo,
-            "descricao": conta.descricao,
-            "valor": conta.valor,
-            "data_vencimento": conta.data_vencimento.isoformat(),
-            "data_pagamento": conta.data_pagamento.isoformat() if conta.data_pagamento else None,
-            "valor_pago": conta.valor_pago,
-            "status": conta.status,
-            "categoria": conta.categoria,
-            "cliente_fornecedor_id": conta.cliente_fornecedor_id,
-            "conta_banco_id": conta.conta_banco_id,
-            "observacoes": conta.observacoes,
-            "documento": conta.documento,
-            "created_at": conta.created_at.isoformat()
-        } for conta in contas
-    ]
-
-# Dashboard
-@api_router.get("/dashboard/stats")
-async def dashboard_stats(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    # Conta clientes
-    result = await db.execute(select(func.count(Cliente.id)).where(Cliente.ativo == True))
-    total_clientes = result.scalar()
-    
-    # Conta fornecedores  
-    result = await db.execute(select(func.count(Fornecedor.id)).where(Fornecedor.ativo == True))
-    total_fornecedores = result.scalar()
-    
-    # Conta produtos
-    result = await db.execute(select(func.count(Produto.id)).where(Produto.ativo == True))
-    total_produtos = result.scalar()
-    
-    # Conta empresas
-    result = await db.execute(select(func.count(Empresa.id)).where(Empresa.ativo == True))
-    total_empresas = result.scalar()
-    
-    # Soma contas a receber pendentes
-    result = await db.execute(select(func.sum(ContaRecebePaga.valor)).where(
-        and_(ContaRecebePaga.tipo == "receber", ContaRecebePaga.status == "pendente")
-    ))
-    total_receber = result.scalar() or 0
-    
-    # Soma contas a pagar pendentes
-    result = await db.execute(select(func.sum(ContaRecebePaga.valor)).where(
-        and_(ContaRecebePaga.tipo == "pagar", ContaRecebePaga.status == "pendente")
-    ))
-    total_pagar = result.scalar() or 0
-    
-    # Saldo total das contas bancárias
-    result = await db.execute(select(func.sum(ContaBanco.saldo_atual)).where(ContaBanco.ativo == True))
-    saldo_bancos = result.scalar() or 0
-    
-    return {
-        "clientes": total_clientes,
-        "fornecedores": total_fornecedores,
-        "produtos": total_produtos,
-        "empresas": total_empresas,
-        "contas_receber": total_receber,
-        "contas_pagar": total_pagar,
-        "saldo_bancos": saldo_bancos,
-        "saldo_liquido": saldo_bancos + total_receber - total_pagar
-    }
-
-# XML Processing (placeholder)
-@api_router.post("/xml/processar")
-async def processar_xml(file: UploadFile = File(...), db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    # TODO: Implementar processamento real de XML
-    return {"message": "XML processado com sucesso", "filename": file.filename}
-
-# Upseller Integration (simulated)
-@api_router.post("/upseller/sync")
-async def sync_upseller(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    # TODO: Implementar integração real com Upseller
-    return {"message": "Sincronização com Upseller simulada"}
-
-@api_router.get("/upseller/produtos")
-async def listar_produtos_upseller(current_user: User = Depends(get_current_user)):
-    # TODO: Implementar listagem real de produtos do Upseller
-    return {"produtos": [], "message": "Integração simulada"}
-
-# Include router
-app.include_router(api_router)
-
-# Root endpoint
-@app.get("/")
-async def root():
-    return {"message": "ERP System API", "status": "running"}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+@app.on_event("shutdown")
+async def shutdown_db_client():
+    client.close()
