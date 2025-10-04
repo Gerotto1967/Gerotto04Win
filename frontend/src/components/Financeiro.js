@@ -175,8 +175,8 @@ const Financeiro = () => {
   };
 
   const contasFiltradas = contas.filter(conta => {
-    const filtroTipoOk = !filtroTipo || conta.tipo === filtroTipo;
-    const filtroStatusOk = !filtroStatus || conta.status === filtroStatus;
+    const filtroTipoOk = filtroTipo === 'all' || conta.tipo === filtroTipo;
+    const filtroStatusOk = filtroStatus === 'all' || conta.status === filtroStatus;
     return filtroTipoOk && filtroStatusOk;
   });
 
