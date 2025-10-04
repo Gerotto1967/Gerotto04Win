@@ -22,8 +22,8 @@ const Financeiro = () => {
   const [relatorio, setRelatorio] = useState({});
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [filtroTipo, setFiltroTipo] = useState(null);
-  const [filtroStatus, setFiltroStatus] = useState(null);
+  const [filtroTipo, setFiltroTipo] = useState('all');
+  const [filtroStatus, setFiltroStatus] = useState('all');
   const [formData, setFormData] = useState({
     tipo: '',
     descricao: '',
