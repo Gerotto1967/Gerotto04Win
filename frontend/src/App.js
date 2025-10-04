@@ -73,7 +73,7 @@ function App() {
   const login = async (username, password) => {
     try {
       const response = await axios.post(`${API}/auth/login`, {
-        username,
+        email: username,
         password
       });
       
