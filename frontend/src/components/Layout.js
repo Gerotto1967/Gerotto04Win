@@ -25,7 +25,7 @@ const Layout = ({ user, onLogout }) => {
     { name: 'Dashboard', href: '/dashboard', icon: Home },
     { name: 'Empresas', href: '/empresas', icon: Building2 },
     { name: 'Clientes', href: '/clientes', icon: Users },
-    { name: 'Fornecedores', href: '/fornecedores', icon: Building2 },
+    { name: 'Fornecedores', href: '/fornecedores', icon: Archive },
     { name: 'Produtos', href: '/produtos', icon: Package },
     { name: 'Estoque', href: '/estoque', icon: Warehouse },
     { name: 'Financeiro', href: '/financeiro', icon: DollarSign },
