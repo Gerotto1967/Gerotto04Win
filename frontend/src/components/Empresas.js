@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Textarea } from './ui/textarea';
 import { Badge } from './ui/badge';
 import { Plus, Edit, Trash2, Building } from 'lucide-react';
-import { useToast } from './ui/use-toast';
+import { useToast } from '../hooks/use-toast';
 
 const Empresas = () => {
   const [empresas, setEmpresas] = useState([]);
