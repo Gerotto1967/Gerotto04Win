@@ -442,7 +442,7 @@ const Financeiro = () => {
             Lista de contas a pagar e receber - {contasFiltradas.length} conta(s)
           </CardDescription>
           <div className="flex items-center space-x-2">
-            <Select value={filtroTipo || undefined} onValueChange={setFiltroTipo}>
+            <Select value={filtroTipo} onValueChange={setFiltroTipo}>
               <SelectTrigger className="w-40">
                 <SelectValue placeholder="Todos os tipos" />
               </SelectTrigger>
