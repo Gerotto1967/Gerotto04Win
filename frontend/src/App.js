@@ -15,6 +15,7 @@ import Financeiro from "./components/Financeiro";
 import ContasBanco from "./components/ContasBanco";
 import ProcessarXML from "./components/ProcessarXML";
 import UpselllerIntegration from "./components/UpselllerIntegration";
+import Empresas from "./components/Empresas";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
