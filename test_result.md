@@ -135,6 +135,66 @@ backend:
         agent: "testing"
         comment: "CONFIRMADO: API Empresas CRUD 100% funcional. Testado CREATE (POST), READ (GET list e single), UPDATE (PUT), DELETE com dados reais: CNPJ 12.345.678/0001-99, Razão Social 'Teste Backend Ltda', UF RJ. Todas operações executadas com sucesso."
 
+  - task: "APIs Clientes, Fornecedores, Produtos"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "CONFIRMADO: Todas as APIs principais funcionais. GET /clientes, /fornecedores, /produtos retornando dados corretos. Testado criação/exclusão de produto com sucesso. Endpoints autenticados e operacionais."
+
+  - task: "API Estoque e Movimentações"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "CONFIRMADO: API Estoque funcional. GET /estoque/{produto_id} retornando estrutura correta com estoque_por_empresa e total_quantidade. Sistema de movimentações implementado."
+
+  - task: "API Financeiro e Contas Bancárias"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "CONFIRMADO: APIs financeiras funcionais. GET /financeiro/contas e /contas-banco retornando dados corretos. Sistema de contas a receber/pagar implementado."
+
+  - task: "Dashboard Statistics"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "CONFIRMADO: Dashboard stats 100% funcional. Retornando contadores corretos: clientes, fornecedores, produtos, empresas, contas_receber, contas_pagar, saldo_bancos, saldo_liquido. Cálculos agregados funcionando."
+
+  - task: "Integrações XML e Upseller"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "CONFIRMADO: Endpoints de integração funcionais. POST /xml/processar, POST /upseller/sync, GET /upseller/produtos retornando respostas corretas. Integrações simuladas conforme implementação."
+
 frontend:
   - task: "Componente Empresas"
     implemented: true
